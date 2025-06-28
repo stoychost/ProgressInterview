@@ -1,0 +1,31 @@
+# Dockerfile for PHP Application
+FROM php:8.2-fpm-alpine
+
+# Install system dependencies and PHP extensions
+RUN apk add --no-cache \
+    mysql-client \
+    && docker-php-ext-install pdo pdo_mysql
+
+# Set working directory
+WORKDIR /var/www/html
+
+# Copy application files
+COPY app/ /var/www/html/
+
+# Create non-root user for security
+RUN addgroup -g 1000 -S appgroup && \
+    adduser -u 1000 -S appuser -G appgroup
+
+# Set proper permissions
+RUN chown -R appuser:appgroup /var/www/html
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD php -f /var/www/html/index.php || exit 1
+
+# Expose PHP-FPM port
+EXPOSE 9000
+
+# Start PHP-FPM
+CMD ["php-fpm"]
