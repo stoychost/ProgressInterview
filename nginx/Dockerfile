@@ -2,10 +2,10 @@
 FROM nginx:alpine
 
 # Copy custom nginx configuration
-COPY nginx.conf /etc/nginx/nginx.conf
+COPY ./nginx/nginx.conf /etc/nginx/nginx.conf
 
 # Copy PHP application files to serve static content
-COPY ../app/ /var/www/html/
+COPY ./app/ /var/www/html/
 
 # Create nginx user and set permissions
 RUN addgroup -g 1000 -S nginxgroup && \
