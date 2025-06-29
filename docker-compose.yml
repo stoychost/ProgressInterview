@@ -1,19 +1,17 @@
-version: '3.8'
-
 services:
   # PHP Application
   php-app:
     build:
-      context: .
+      context: ./app
       dockerfile: Dockerfile
     container_name: hello-world-php
     restart: unless-stopped
     environment:
-      - APP_ENV=development
-      - DB_HOST=mysql
-      - DB_NAME=hello_world
-      - DB_USER=app_user
-      - DB_PASSWORD=app_password
+      - APP_ENV=${APP_ENV:-development}
+      - DB_HOST=${DB_HOST:-mysql}
+      - DB_NAME=${DB_NAME:-hello_world}
+      - DB_USER=${DB_USER:-app_user}
+      - DB_PASSWORD=${DB_PASSWORD}
     volumes:
       - ./app:/var/www/html
       - php_logs:/var/log
@@ -32,12 +30,12 @@ services:
   # Nginx Reverse Proxy
   nginx:
     build:
-      context: ./nginx
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./nginx/Dockerfile
     container_name: hello-world-nginx
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "${APP_PORT:-8080}:80"
     volumes:
       - ./app:/var/www/html:ro
       - nginx_logs:/var/log/nginx
@@ -59,10 +57,10 @@ services:
     container_name: hello-world-mysql
     restart: unless-stopped
     environment:
-      - MYSQL_ROOT_PASSWORD=root_password
-      - MYSQL_DATABASE=hello_world
-      - MYSQL_USER=app_user
-      - MYSQL_PASSWORD=app_password
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${DB_NAME:-hello_world}
+      - MYSQL_USER=${DB_USER:-app_user}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
       - mysql_logs:/var/log/mysql
@@ -70,7 +68,7 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -84,9 +82,9 @@ services:
     environment:
       - PMA_HOST=mysql
       - PMA_USER=root
-      - PMA_PASSWORD=root_password
+      - PMA_PASSWORD=${MYSQL_ROOT_PASSWORD}
     ports:
-      - "8081:80"
+      - "${PHPMYADMIN_PORT:-8081}:80"
     networks:
       - app-network
     depends_on:

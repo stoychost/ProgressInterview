@@ -1,25 +1,102 @@
-# CakePHP 3
+# .gitignore
 
-/vendor/*
-/config/app.php
+# ==============================
+# SECURITY SENSITIVE FILES
+# ==============================
+# Never commit these files!
+.env
+.env.local
+.env.production
+.env.staging
+secrets/
+*.key
+*.pem
+*.p12
+*.pfx
 
-/tmp/cache/models/*
-!/tmp/cache/models/empty
-/tmp/cache/persistent/*
-!/tmp/cache/persistent/empty
-/tmp/cache/views/*
-!/tmp/cache/views/empty
-/tmp/sessions/*
-!/tmp/sessions/empty
-/tmp/tests/*
-!/tmp/tests/empty
+# ==============================
+# APPLICATION
+# ==============================
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-/logs/*
-!/logs/empty
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
 
-# CakePHP 2
+# ==============================
+# DOCKER & CONTAINERS
+# ==============================
+# Docker volumes persist here
+mysql_data/
+nginx_logs/
+php_logs/
 
-/app/tmp/*
-/app/Config/core.php
-/app/Config/database.php
-/vendors/*
+# ==============================
+# DEVELOPMENT TOOLS
+# ==============================
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ==============================
+# DEPENDENCIES
+# ==============================
+node_modules/
+vendor/
+composer.lock
+
+# ==============================
+# TERRAFORM - COMMIT .tf FILES!
+# ==============================
+# Terraform state files (sensitive - never commit)
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+
+# Variable files with sensitive data (never commit)
+terraform.tfvars
+*.auto.tfvars
+secret.tfvars
+prod.tfvars
+
+# Keep these files (.tf, .tfvars.example, etc. ARE committed)
+# terraform/
+# *.tf
+# *.tfvars.example
+
+# Build artifacts (don't commit)
+dist/
+build/
+target/
+
+# Test coverage
+coverage/
+*.coverage
+
+# ==============================
+# BACKUP FILES
+# ==============================
+*.bak
+*.backup
+*.sql.gz

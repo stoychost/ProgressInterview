@@ -10,7 +10,7 @@ RUN apk add --no-cache \
 WORKDIR /var/www/html
 
 # Copy application files
-COPY app/ /var/www/html/
+COPY . /var/www/html/
 
 # Create non-root user for security
 RUN addgroup -g 1000 -S appgroup && \
