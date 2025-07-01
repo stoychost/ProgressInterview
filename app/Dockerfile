@@ -1,9 +1,9 @@
-# Dockerfile for PHP Application
-FROM php:8.2-fpm-alpine
+FROM php:8.2-cli-alpine
 
 # Install system dependencies and PHP extensions
 RUN apk add --no-cache \
     mysql-client \
+    curl \
     && docker-php-ext-install pdo pdo_mysql
 
 # Set working directory
@@ -20,12 +20,12 @@ RUN addgroup -g 1000 -S appgroup && \
 RUN chown -R appuser:appgroup /var/www/html
 USER appuser
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD php -f /var/www/html/index.php || exit 1
+# Health check for ECS
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
 
-# Expose PHP-FPM port
-EXPOSE 9000
+# Expose port 8000
+EXPOSE 8000
 
-# Start PHP-FPM
-CMD ["php-fpm"]
+# Use PHP built-in server on port 8000 (NOT PHP-FPM)
+CMD ["php", "-S", "0.0.0.0:8000", "-t", "/var/www/html"]
