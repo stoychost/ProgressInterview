@@ -3,8 +3,11 @@
 # ==============================
 # SECURITY SENSITIVE FILES
 # ==============================
-# Never commit these files!
-.env
+# .env is committed for easy local setup for the tester 
+# In production: uncomment the line below
+# .env
+
+# Never commit these environment files
 .env.local
 .env.production
 .env.staging
@@ -84,6 +87,14 @@ prod.tfvars
 # terraform/
 # *.tf
 # *.tfvars.example
+
+# ==============================
+# CI/CD - COMMIT PIPELINE FILES!
+# ==============================
+# Jenkins, GitHub Actions, etc. should be committed
+# jenkins/
+# .github/
+# .gitlab-ci.yml
 
 # Build artifacts (don't commit)
 dist/
