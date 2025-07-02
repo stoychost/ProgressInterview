@@ -340,3 +340,23 @@ EOF
                             --services ${ECS_SERVICE_NAME} \
                             --query 'services[0].runningCount' \
                             --output text)
+                        
+                        DESIRED_COUNT=$(aws ecs describe-services \
+                            --cluster ${ECS_CLUSTER_NAME} \
+                            --services ${ECS_SERVICE_NAME} \
+                            --query 'services[0].desiredCount' \
+                            --output text)
+                        
+                        echo "✅ Deployment completed!"
+                        echo "   Running tasks: $RUNNING_COUNT"
+                        echo "   Desired tasks: $DESIRED_COUNT"
+                        
+                        if [ "$RUNNING_COUNT" = "$DESIRED_COUNT" ]; then
+                            echo "🎉 All tasks are running successfully!"
+                        else
+                            echo "⚠️ Task count mismatch - check ECS console"
+                        fi
+                    '''
+                }
+            }
+        }
