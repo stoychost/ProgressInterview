@@ -3,11 +3,18 @@ pipeline {
     
     environment {
         AWS_DEFAULT_REGION = 'eu-central-1'
-        ECR_REPOSITORY = '993968405647.dkr.ecr.eu-central-1.amazonaws.com/hello-world-app'
+        // These will be loaded dynamically from Terraform
+        ECR_REPOSITORY = ''
         ECS_CLUSTER = 'hello-world-cluster'
         ECS_SERVICE = 'hello-world-service'
         TASK_FAMILY = 'hello-world-task'
         DB_PASSWORD = credentials('db-password')
+        // Dynamic values from Terraform
+        ALB_DNS_NAME = ''
+        DB_HOST = ''
+        ECR_REPOSITORY_URL = ''
+        TASK_EXECUTION_ROLE_ARN = ''
+        TASK_ROLE_ARN = ''
     }
     
     stages {
@@ -15,6 +22,50 @@ pipeline {
             steps {
                 checkout scm
                 echo "🚀 Starting CI/CD Pipeline for Hello World"
+            }
+        }
+        
+        stage('Get Infrastructure Info') {
+            steps {
+                script {
+                    echo "🔍 Getting current infrastructure details..."
+                    sh '''
+                        cd terraform
+                        # Get all Jenkins environment variables from Terraform output
+                        terraform output -json jenkins_environment_variables > ../jenkins_vars.json
+                        
+                        # Extract specific values we need immediately
+                        ALB_DNS=$(terraform output -json jenkins_environment_variables | jq -r '.ALB_DNS_NAME')
+                        DB_HOST=$(terraform output -json jenkins_environment_variables | jq -r '.DB_HOST')
+                        ECR_REPO=$(terraform output -json jenkins_environment_variables | jq -r '.ECR_REPOSITORY_URL')
+                        
+                        echo "Current ALB DNS: $ALB_DNS"
+                        echo "Current DB Host: $DB_HOST" 
+                        echo "Current ECR Repo: $ECR_REPO"
+                        
+                        # Create environment file for Jenkins
+                        cat > ../infrastructure.env << EOF
+ALB_DNS_NAME=$ALB_DNS
+DB_HOST=$DB_HOST
+ECR_REPOSITORY_URL=$ECR_REPO
+TASK_EXECUTION_ROLE_ARN=$(terraform output -json jenkins_environment_variables | jq -r '.TASK_EXECUTION_ROLE_ARN')
+TASK_ROLE_ARN=$(terraform output -json jenkins_environment_variables | jq -r '.TASK_ROLE_ARN')
+EOF
+                    '''
+                    
+                    // Load all the infrastructure variables
+                    def props = readProperties file: 'infrastructure.env'
+                    env.ALB_DNS_NAME = props.ALB_DNS_NAME
+                    env.DB_HOST = props.DB_HOST
+                    env.ECR_REPOSITORY_URL = props.ECR_REPOSITORY_URL
+                    env.TASK_EXECUTION_ROLE_ARN = props.TASK_EXECUTION_ROLE_ARN
+                    env.TASK_ROLE_ARN = props.TASK_ROLE_ARN
+                    
+                    echo "✅ Infrastructure info loaded:"
+                    echo "   ALB DNS: ${env.ALB_DNS_NAME}"
+                    echo "   DB Host: ${env.DB_HOST}"
+                    echo "   ECR Repo: ${env.ECR_REPOSITORY_URL}"
+                }
             }
         }
         
@@ -37,13 +88,13 @@ pipeline {
                 script {
                     echo "📦 Pushing to ECR..."
                     sh '''
-                        aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REPOSITORY}
+                        aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REPOSITORY_URL}
                         
-                        docker tag hello-world-app:${BUILD_NUMBER} ${ECR_REPOSITORY}:${BUILD_NUMBER}
-                        docker tag hello-world-app:${BUILD_NUMBER} ${ECR_REPOSITORY}:latest
+                        docker tag hello-world-app:${BUILD_NUMBER} ${ECR_REPOSITORY_URL}:${BUILD_NUMBER}
+                        docker tag hello-world-app:${BUILD_NUMBER} ${ECR_REPOSITORY_URL}:latest
                         
-                        docker push ${ECR_REPOSITORY}:${BUILD_NUMBER}
-                        docker push ${ECR_REPOSITORY}:latest
+                        docker push ${ECR_REPOSITORY_URL}:${BUILD_NUMBER}
+                        docker push ${ECR_REPOSITORY_URL}:latest
                         
                         echo "✅ Images pushed successfully"
                     '''
@@ -63,16 +114,16 @@ pipeline {
     "requiresCompatibilities": ["FARGATE"],
     "cpu": "256",
     "memory": "512",
-    "executionRoleArn": "arn:aws:iam::993968405647:role/hello-world-ecs-task-execution-role",
-    "taskRoleArn": "arn:aws:iam::993968405647:role/hello-world-ecs-task-role",
+    "executionRoleArn": "${TASK_EXECUTION_ROLE_ARN}",
+    "taskRoleArn": "${TASK_ROLE_ARN}",
     "containerDefinitions": [
         {
             "name": "php-app",
-            "image": "${ECR_REPOSITORY}:${BUILD_NUMBER}",
+            "image": "${ECR_REPOSITORY_URL}:${BUILD_NUMBER}",
             "portMappings": [{"containerPort": 8000, "protocol": "tcp"}],
             "environment": [
                 {"name": "APP_ENV", "value": "production"},
-                {"name": "DB_HOST", "value": "hello-world-database.cpqq2kwsslls.eu-central-1.rds.amazonaws.com"},
+                {"name": "DB_HOST", "value": "${DB_HOST}"},
                 {"name": "DB_NAME", "value": "hello_world"},
                 {"name": "DB_USER", "value": "app_user"},
                 {"name": "DB_PASSWORD", "value": "${DB_PASSWORD}"}
@@ -123,11 +174,22 @@ EOFTASK
                     sh '''
                         sleep 30
                         
-                        if curl -f http://hello-world.stoycho.online/health; then
-                            echo "✅ Health check passed!"
+                        echo "Testing domain: http://hello-world.stoycho.online/health"
+                        if curl -f --connect-timeout 10 http://hello-world.stoycho.online/health; then
+                            echo "✅ Domain health check passed!"
                         else
-                            echo "⚠️ Domain check failed, trying ALB..."
-                            curl -f http://hello-world-alb-1445760328.eu-central-1.elb.amazonaws.com/health
+                            echo "⚠️ Domain check failed, trying ALB directly..."
+                            echo "Testing ALB: http://${ALB_DNS_NAME}/health"
+                            
+                            if curl -f --connect-timeout 10 http://${ALB_DNS_NAME}/health; then
+                                echo "✅ ALB health check passed!"
+                                echo "🔧 Note: Domain DNS may need time to propagate"
+                            else
+                                echo "❌ Both domain and ALB health checks failed"
+                                echo "🔍 Checking ECS service status..."
+                                aws ecs describe-services --cluster ${ECS_CLUSTER} --services ${ECS_SERVICE} --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount}'
+                                exit 1
+                            fi
                         fi
                     '''
                 }
@@ -138,7 +200,7 @@ EOFTASK
     post {
         always {
             sh '''
-                rm -f task-definition.json
+                rm -f task-definition.json infrastructure.env jenkins_vars.json
                 docker rmi hello-world-app:${BUILD_NUMBER} || true
                 docker rmi hello-world-app:latest || true
             '''
@@ -146,9 +208,13 @@ EOFTASK
         success {
             echo "🎉 Pipeline completed successfully!"
             echo "🌐 Application: http://hello-world.stoycho.online"
+            echo "🔗 ALB Direct: http://${ALB_DNS_NAME}"
         }
         failure {
             echo "❌ Pipeline failed. Check the logs above."
+            echo "🔍 Debug URLs:"
+            echo "   Domain: http://hello-world.stoycho.online/health"
+            echo "   ALB: http://${ALB_DNS_NAME}/health"
         }
     }
 }
