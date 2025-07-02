@@ -127,68 +127,6 @@ pipeline {
             }
         }
         
-        stage('Verify Infrastructure Health') {
-            steps {
-                script {
-                    echo "🏥 Verifying infrastructure health..."
-                    sh '''
-                        HEALTH_ISSUES=0
-                        
-                        # Check ECS cluster
-                        echo "Checking ECS cluster status..."
-                        CLUSTER_STATUS=$(aws ecs describe-clusters --clusters ${ECS_CLUSTER_NAME} --region ${AWS_DEFAULT_REGION} --query 'clusters[0].status' --output text)
-                        if [ "$CLUSTER_STATUS" = "ACTIVE" ]; then
-                            echo "✅ ECS cluster is active"
-                        else
-                            echo "❌ ECS cluster status: $CLUSTER_STATUS"
-                            HEALTH_ISSUES=$((HEALTH_ISSUES + 1))
-                        fi
-                        
-                        # Check ECS service
-                        echo "Checking ECS service status..."
-                        SERVICE_STATUS=$(aws ecs describe-services --cluster ${ECS_CLUSTER_NAME} --services ${ECS_SERVICE_NAME} --region ${AWS_DEFAULT_REGION} --query 'services[0].status' --output text)
-                        if [ "$SERVICE_STATUS" = "ACTIVE" ]; then
-                            echo "✅ ECS service is active"
-                        else
-                            echo "❌ ECS service status: $SERVICE_STATUS"
-                            HEALTH_ISSUES=$((HEALTH_ISSUES + 1))
-                        fi
-                        
-                        # Check RDS
-                        if [ -n "${DB_HOST}" ]; then
-                            echo "Checking RDS status..."
-                            RDS_STATUS=$(aws rds describe-db-instances --db-instance-identifier hello-world-database --region ${AWS_DEFAULT_REGION} --query 'DBInstances[0].DBInstanceStatus' --output text)
-                            if [ "$RDS_STATUS" = "available" ]; then
-                                echo "✅ RDS database is available"
-                            else
-                                echo "❌ RDS status: $RDS_STATUS"
-                                HEALTH_ISSUES=$((HEALTH_ISSUES + 1))
-                            fi
-                        fi
-                        
-                        # Check ALB
-                        if [ -n "${ALB_DNS_NAME}" ]; then
-                            echo "Checking ALB status..."
-                            ALB_STATE=$(aws elbv2 describe-load-balancers --names hello-world-alb --region ${AWS_DEFAULT_REGION} --query 'LoadBalancers[0].State.Code' --output text)
-                            if [ "$ALB_STATE" = "active" ]; then
-                                echo "✅ ALB is active"
-                            else
-                                echo "❌ ALB state: $ALB_STATE"
-                                HEALTH_ISSUES=$((HEALTH_ISSUES + 1))
-                            fi
-                        fi
-                        
-                        if [ $HEALTH_ISSUES -eq 0 ]; then
-                            echo "🎉 All infrastructure components are healthy!"
-                        else
-                            echo "⚠️ Found $HEALTH_ISSUES infrastructure issues"
-                            echo "Deployment will continue, but there may be issues"
-                        fi
-                    '''
-                }
-            }
-        }
-        
         stage('Build Docker Image') {
             steps {
                 script {
@@ -360,3 +298,128 @@ EOF
                 }
             }
         }
+        
+        stage('Health Check & Verification') {
+            steps {
+                script {
+                    echo "🏥 Testing application health..."
+                    sh '''
+                        # Wait a bit for the application to fully start
+                        echo "⏳ Waiting for application to start..."
+                        sleep 30
+                        
+                        # Test ALB directly first
+                        echo "🔗 Testing ALB: http://${ALB_DNS_NAME}/health"
+                        ALB_SUCCESS=false
+                        if curl -f --connect-timeout 10 --max-time 30 "http://${ALB_DNS_NAME}/health"; then
+                            echo "✅ ALB health check PASSED!"
+                            ALB_SUCCESS=true
+                        else
+                            echo "❌ ALB health check FAILED"
+                        fi
+                        
+                        echo ""
+                        
+                        # Overall health assessment
+                        if [ "$ALB_SUCCESS" = true ]; then
+                            echo "🎉 APPLICATION IS OPERATIONAL!"
+                            echo "   ✅ ALB: http://${ALB_DNS_NAME}"
+                            echo "   ✅ Health: http://${ALB_DNS_NAME}/health"
+                        else
+                            echo "❌ Application health checks failed"
+                            echo "🔍 Checking ECS service for issues..."
+                            
+                            # Diagnostics
+                            aws ecs describe-services \
+                                --cluster ${ECS_CLUSTER_NAME} \
+                                --services ${ECS_SERVICE_NAME} \
+                                --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount,Pending:pendingCount}' \
+                                --output table
+                            
+                            # Get recent events
+                            echo ""
+                            echo "📋 Recent ECS service events:"
+                            aws ecs describe-services \
+                                --cluster ${ECS_CLUSTER_NAME} \
+                                --services ${ECS_SERVICE_NAME} \
+                                --query 'services[0].events[:5].{Time:createdAt,Message:message}' \
+                                --output table
+                            
+                            exit 1
+                        fi
+                        
+                        # Additional verification - test main page
+                        echo ""
+                        echo "📄 Testing main application page..."
+                        TEST_URL="http://${ALB_DNS_NAME}"
+                        
+                        if curl -f --connect-timeout 10 --max-time 30 "$TEST_URL" | grep -q "Hello World"; then
+                            echo "✅ Main page is working correctly!"
+                        else
+                            echo "⚠️ Main page test failed, but health check passed"
+                        fi
+                        
+                        echo ""
+                        echo "🎯 DEPLOYMENT SUMMARY:"
+                        echo "   Build: ${BUILD_NUMBER}"
+                        echo "   Image: ${ECR_REPOSITORY_URL}:${BUILD_NUMBER}"
+                        echo "   Cluster: ${ECS_CLUSTER_NAME}"
+                        echo "   Service: ${ECS_SERVICE_NAME}"
+                        echo "   Task Family: ${TASK_FAMILY}"
+                        echo "   Database: ${DB_HOST}"
+                        echo ""
+                        echo "🌐 ACCESS URLS:"
+                        echo "   Primary: http://hello-world.stoycho.online"
+                        echo "   Health:  http://hello-world.stoycho.online/health"
+                        echo "   ALB:     http://${ALB_DNS_NAME}"
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            script {
+                // Cleanup
+                sh '''
+                    rm -f task-definition.json aws-resources.env
+                    docker rmi hello-world-app:${BUILD_NUMBER} 2>/dev/null || true
+                    docker rmi hello-world-app:latest 2>/dev/null || true
+                '''
+            }
+        }
+        success {
+            script {
+                echo "🎉 DEPLOYMENT PIPELINE COMPLETED SUCCESSFULLY!"
+                echo ""
+                echo "✅ Application deployed successfully"
+                echo "🔢 Build number: ${BUILD_NUMBER}"
+                echo "📦 Image: ${env.ECR_REPOSITORY_URL}:${BUILD_NUMBER}"
+                echo "🏗️ Infrastructure: Dynamically discovered"
+                echo ""
+                echo "🌐 ACCESS YOUR APPLICATION:"
+                echo "   🔗 Primary URL: http://hello-world.stoycho.online"
+                echo "   🏥 Health Check: http://hello-world.stoycho.online/health"
+                echo "   🔧 ALB Direct: http://${env.ALB_DNS_NAME}"
+            }
+        }
+        failure {
+            script {
+                echo "❌ DEPLOYMENT PIPELINE FAILED"
+                echo ""
+                echo "🔍 Common troubleshooting steps:"
+                echo "   1. Check ECS service events in AWS console"
+                echo "   2. Verify task definition registration"
+                echo "   3. Check CloudWatch logs: ${env.LOG_GROUP_NAME}"
+                echo "   4. Verify ECR image exists: ${env.ECR_REPOSITORY_URL}:${BUILD_NUMBER}"
+                echo ""
+                echo "🔧 Debug URLs:"
+                if (env.ALB_DNS_NAME) {
+                    echo "   ALB Health: http://${env.ALB_DNS_NAME}/health"
+                }
+                echo "   ECS Console: https://console.aws.amazon.com/ecs/home?region=${AWS_DEFAULT_REGION}#/clusters/${env.ECS_CLUSTER_NAME}/services"
+            }
+        }
+    }
+}
