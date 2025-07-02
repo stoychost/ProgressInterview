@@ -308,15 +308,17 @@ EOFTASK
             echo "📦 Image: ${env.ECR_REPOSITORY_URL}:${BUILD_NUMBER}"
         }
         failure {
-            echo "❌ Pipeline failed. Check the logs above."
-            echo "🔍 Debug Information:"
-            echo "   Domain: http://hello-world.stoycho.online/health"
-            if (env.ALB_DNS_NAME) {
-                echo "   ALB: http://${env.ALB_DNS_NAME}/health"
-                echo "   ECS Service: ${env.ECS_SERVICE_NAME} in ${env.ECS_CLUSTER_NAME}"
-                echo "   Target Group: ${env.TARGET_GROUP_ARN}"
-            } else {
-                echo "   ALB: (Could not retrieve ALB DNS from infrastructure)"
+            script {
+                echo "❌ Pipeline failed. Check the logs above."
+                echo "🔍 Debug Information:"
+                echo "   Domain: http://hello-world.stoycho.online/health"
+                if (env.ALB_DNS_NAME) {
+                    echo "   ALB: http://${env.ALB_DNS_NAME}/health"
+                    echo "   ECS Service: ${env.ECS_SERVICE_NAME} in ${env.ECS_CLUSTER_NAME}"
+                    echo "   Target Group: ${env.TARGET_GROUP_ARN}"
+                } else {
+                    echo "   ALB: (Could not retrieve ALB DNS from infrastructure)"
+                }
             }
         }
     }
