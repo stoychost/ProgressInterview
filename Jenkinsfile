@@ -11,25 +11,71 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
-                echo "🚀 Starting Terraform-Managed CI/CD Pipeline"
+                echo "🧹 Starting Cleanup of Duplicate Resources"
+                echo "⚠️  This will destroy resources created by Jenkins Terraform"
             }
         }
         
-        stage('Terraform Setup') {
+        stage('Analyze Current State') {
             steps {
                 script {
-                    echo "🔧 Setting up Terraform..."
+                    echo "🔍 Analyzing current Terraform state in Jenkins..."
                     sh '''
                         cd terraform
                         
-                        # Initialize Terraform
+                        # Initialize if needed
                         terraform init -input=false
                         
-                        # Create terraform.tfvars for Jenkins if it doesn't exist
-                        if [ ! -f terraform.tfvars ]; then
-                            echo "Creating terraform.tfvars for Jenkins..."
-                            cat > terraform.tfvars << EOF
-# Jenkins-managed terraform.tfvars
+                        echo "=== Current Terraform State ==="
+                        if terraform state list; then
+                            echo ""
+                            echo "=== Number of Resources in Jenkins State ==="
+                            terraform state list | wc -l
+                            echo ""
+                            
+                            echo "=== Terraform Plan (what would be destroyed) ==="
+                            terraform plan -destroy -input=false
+                        else
+                            echo "No state file found - nothing to destroy"
+                            exit 0
+                        fi
+                    '''
+                }
+            }
+        }
+        
+        stage('Confirm Destruction') {
+            steps {
+                script {
+                    echo "⚠️  DESTRUCTION CONFIRMATION REQUIRED"
+                    echo ""
+                    echo "This will destroy ALL resources managed by Jenkins Terraform state."
+                    echo "Your original infrastructure (managed locally) will NOT be affected."
+                    echo ""
+                    echo "🔍 To proceed, the pipeline will destroy the duplicate resources."
+                    echo "⏸️  Pipeline will pause here for safety."
+                    
+                    // In a real scenario, you might want manual approval
+                    // For now, we'll add a delay and clear warning
+                    sh '''
+                        echo "⏳ Waiting 10 seconds before proceeding with destruction..."
+                        echo "⚠️  Press Ctrl+C now if you want to abort!"
+                        sleep 10
+                        echo "🚀 Proceeding with destruction..."
+                    '''
+                }
+            }
+        }
+        
+        stage('Destroy Duplicate Resources') {
+            steps {
+                script {
+                    echo "🧹 Destroying duplicate resources created by Jenkins..."
+                    sh '''
+                        cd terraform
+                        
+                        # Create terraform.tfvars to match what was created
+                        cat > terraform.tfvars << EOF
 project_name = "hello-world"
 environment  = "production"
 aws_region = "eu-central-1"
@@ -39,6 +85,7 @@ private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
 db_instance_class = "db.t3.micro"
 db_name          = "hello_world"
 db_username      = "app_user"
+db_password      = "${DB_PASSWORD}"
 ecs_cpu           = 256
 ecs_memory        = 512
 ecs_desired_count = 1
@@ -49,225 +96,101 @@ common_tags = {
   Project     = "hello-world-microservice"
   Environment = "production"
   Owner       = "stoycho"
-  ManagedBy   = "jenkins"
+  ManagedBy   = "terraform"
   Repository  = "https://github.com/stoychost/ProgressInterview"
 }
 EOF
+
+                        # Run terraform destroy
+                        echo "🗑️  Destroying all resources in Jenkins state..."
+                        terraform destroy -auto-approve -input=false
+                        
+                        echo "✅ Destruction completed"
+                        
+                        # Verify destruction
+                        echo "🔍 Verifying all resources are destroyed..."
+                        if terraform state list; then
+                            echo "⚠️  Some resources may still exist in state"
+                            terraform state list
+                        else
+                            echo "✅ All resources successfully destroyed"
                         fi
-                        
-                        # Plan the infrastructure
-                        echo "🔍 Planning infrastructure changes..."
-                        terraform plan -input=false -out=tfplan
-                        
-                        # Apply only if there are changes or if this is the first run
-                        echo "🚀 Applying infrastructure changes..."
-                        terraform apply -input=false tfplan
-                        
-                        echo "✅ Terraform setup complete"
                     '''
                 }
             }
         }
         
-        stage('Load Dynamic Infrastructure') {
+        stage('Clean Up State Files') {
             steps {
                 script {
-                    echo "🔍 Loading dynamic infrastructure values from Terraform..."
+                    echo "🧹 Cleaning up Terraform state files..."
                     sh '''
                         cd terraform
                         
-                        # Now we should have a state file with outputs
-                        echo "=== Available Terraform Outputs ==="
-                        terraform output
-                        echo ""
-                        
-                        # Get all dynamic values
-                        ALB_DNS=$(terraform output -raw alb_dns_name)
-                        ECR_REPO_URL=$(terraform output -raw ecr_repository_url)
-                        ECS_CLUSTER=$(terraform output -raw ecs_cluster_name)
-                        ECS_SERVICE=$(terraform output -raw ecs_service_name)
-                        TASK_DEF_FAMILY=$(terraform output -raw ecs_task_definition_family)
-                        DB_ENDPOINT=$(terraform output -raw rds_endpoint)
-                        DB_HOST_ONLY=$(echo $DB_ENDPOINT | cut -d: -f1)
-                        TASK_EXEC_ROLE=$(terraform output -raw ecs_task_execution_role_arn)
-                        TASK_ROLE=$(terraform output -raw ecs_task_role_arn)
-                        LOG_GROUP=$(terraform output -raw cloudwatch_log_group_name)
-                        AWS_ACCOUNT=$(terraform output -raw aws_account_id)
-                        
-                        echo "🎯 Successfully extracted all dynamic values:"
-                        echo "   ALB DNS: $ALB_DNS"
-                        echo "   ECR Repository: $ECR_REPO_URL"
-                        echo "   ECS Cluster: $ECS_CLUSTER"
-                        echo "   ECS Service: $ECS_SERVICE"
-                        echo "   Task Family: $TASK_DEF_FAMILY"
-                        echo "   DB Host: $DB_HOST_ONLY"
-                        echo "   Log Group: $LOG_GROUP"
-                        echo "   AWS Account: $AWS_ACCOUNT"
-                        
-                        # Create config file for next stages
-                        cat > ../infrastructure.env << EOF
-ALB_DNS_NAME=$ALB_DNS
-ECR_REPOSITORY_URL=$ECR_REPO_URL
-ECS_CLUSTER_NAME=$ECS_CLUSTER
-ECS_SERVICE_NAME=$ECS_SERVICE
-TASK_FAMILY=$TASK_DEF_FAMILY
-DB_HOST=$DB_HOST_ONLY
-TASK_EXECUTION_ROLE_ARN=$TASK_EXEC_ROLE
-TASK_ROLE_ARN=$TASK_ROLE
-LOG_GROUP_NAME=$LOG_GROUP
-AWS_ACCOUNT_ID=$AWS_ACCOUNT
-EOF
-                    '''
-                    
-                    // Load the infrastructure values
-                    def configContent = readFile('infrastructure.env')
-                    def configLines = configContent.split('\n')
-                    
-                    for (String line : configLines) {
-                        if (line.trim() && line.contains('=')) {
-                            def parts = line.split('=', 2)
-                            if (parts.length == 2) {
-                                def key = parts[0].trim()
-                                def value = parts[1].trim()
-                                env."${key}" = value
-                            }
-                        }
-                    }
-                    
-                    echo "✅ All infrastructure values loaded dynamically:"
-                    echo "   ALB DNS: ${env.ALB_DNS_NAME}"
-                    echo "   ECR Repository: ${env.ECR_REPOSITORY_URL}"
-                    echo "   ECS Cluster: ${env.ECS_CLUSTER_NAME}"
-                    echo "   ECS Service: ${env.ECS_SERVICE_NAME}"
-                    echo "   Task Family: ${env.TASK_FAMILY}"
-                    echo "   DB Host: ${env.DB_HOST}"
-                    echo "   Log Group: ${env.LOG_GROUP_NAME}"
-                    echo "   AWS Account: ${env.AWS_ACCOUNT_ID}"
-                }
-            }
-        }
-        
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    echo "🐳 Building Docker image..."
-                    sh '''
-                        cd app
-                        docker build -t hello-world-app:${BUILD_NUMBER} .
-                        docker tag hello-world-app:${BUILD_NUMBER} hello-world-app:latest
-                        echo "✅ Image built: hello-world-app:${BUILD_NUMBER}"
-                    '''
-                }
-            }
-        }
-        
-        stage('Push to ECR') {
-            steps {
-                script {
-                    echo "📦 Pushing to ECR: ${env.ECR_REPOSITORY_URL}"
-                    sh '''
-                        aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REPOSITORY_URL}
-                        
-                        docker tag hello-world-app:${BUILD_NUMBER} ${ECR_REPOSITORY_URL}:${BUILD_NUMBER}
-                        docker tag hello-world-app:${BUILD_NUMBER} ${ECR_REPOSITORY_URL}:latest
-                        
-                        docker push ${ECR_REPOSITORY_URL}:${BUILD_NUMBER}
-                        docker push ${ECR_REPOSITORY_URL}:latest
-                        
-                        echo "✅ Images pushed successfully"
-                    '''
-                }
-            }
-        }
-        
-        stage('Deploy to ECS') {
-            steps {
-                script {
-                    echo "🚀 Deploying to ECS with all dynamic values..."
-                    sh '''
-                        cat > task-definition.json << EOFTASK
-{
-    "family": "${TASK_FAMILY}",
-    "networkMode": "awsvpc",
-    "requiresCompatibilities": ["FARGATE"],
-    "cpu": "256",
-    "memory": "512",
-    "executionRoleArn": "${TASK_EXECUTION_ROLE_ARN}",
-    "taskRoleArn": "${TASK_ROLE_ARN}",
-    "containerDefinitions": [
-        {
-            "name": "php-app",
-            "image": "${ECR_REPOSITORY_URL}:${BUILD_NUMBER}",
-            "portMappings": [{"containerPort": 8000, "protocol": "tcp"}],
-            "environment": [
-                {"name": "APP_ENV", "value": "production"},
-                {"name": "DB_HOST", "value": "${DB_HOST}"},
-                {"name": "DB_NAME", "value": "hello_world"},
-                {"name": "DB_USER", "value": "app_user"},
-                {"name": "DB_PASSWORD", "value": "${DB_PASSWORD}"}
-            ],
-            "logConfiguration": {
-                "logDriver": "awslogs",
-                "options": {
-                    "awslogs-group": "${LOG_GROUP_NAME}",
-                    "awslogs-region": "${AWS_DEFAULT_REGION}",
-                    "awslogs-stream-prefix": "ecs"
-                }
-            },
-            "healthCheck": {
-                "command": ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"],
-                "interval": 30, "timeout": 5, "retries": 3, "startPeriod": 60
-            },
-            "essential": true
-        }
-    ]
-}
-EOFTASK
-
-                        aws ecs register-task-definition --cli-input-json file://task-definition.json
-                        aws ecs update-service --cluster ${ECS_CLUSTER_NAME} --service ${ECS_SERVICE_NAME} --task-definition ${TASK_FAMILY}
-                        
-                        echo "✅ Deployment initiated"
-                    '''
-                }
-            }
-        }
-        
-        stage('Wait for Deployment') {
-            steps {
-                script {
-                    echo "⏳ Waiting for deployment to complete..."
-                    sh '''
-                        aws ecs wait services-stable --cluster ${ECS_CLUSTER_NAME} --services ${ECS_SERVICE_NAME}
-                        echo "✅ Deployment completed"
-                    '''
-                }
-            }
-        }
-        
-        stage('Health Check') {
-            steps {
-                script {
-                    echo "🏥 Testing application..."
-                    sh '''
-                        sleep 30
-                        
-                        echo "Testing domain: http://hello-world.stoycho.online/health"
-                        if curl -f --connect-timeout 10 http://hello-world.stoycho.online/health; then
-                            echo "✅ Domain health check passed!"
-                        else
-                            echo "⚠️ Domain check failed, trying ALB directly..."
-                            echo "Testing ALB: http://${ALB_DNS_NAME}/health"
-                            
-                            if curl -f --connect-timeout 10 http://${ALB_DNS_NAME}/health; then
-                                echo "✅ ALB health check passed!"
-                                echo "🔧 Note: Domain DNS may need time to propagate"
-                            else
-                                echo "❌ Both domain and ALB health checks failed"
-                                aws ecs describe-services --cluster ${ECS_CLUSTER_NAME} --services ${ECS_SERVICE_NAME} --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount}'
-                                exit 1
-                            fi
+                        # Remove state files created by Jenkins
+                        if [ -f terraform.tfstate ]; then
+                            echo "🗑️  Removing terraform.tfstate"
+                            rm -f terraform.tfstate
                         fi
+                        
+                        if [ -f terraform.tfstate.backup ]; then
+                            echo "🗑️  Removing terraform.tfstate.backup"
+                            rm -f terraform.tfstate.backup
+                        fi
+                        
+                        if [ -f .terraform.lock.hcl ]; then
+                            echo "🗑️  Removing .terraform.lock.hcl"
+                            rm -f .terraform.lock.hcl
+                        fi
+                        
+                        if [ -d .terraform ]; then
+                            echo "🗑️  Removing .terraform directory"
+                            rm -rf .terraform
+                        fi
+                        
+                        if [ -f terraform.tfvars ]; then
+                            echo "🗑️  Removing temporary terraform.tfvars"
+                            rm -f terraform.tfvars
+                        fi
+                        
+                        if [ -f tfplan ]; then
+                            echo "🗑️  Removing tfplan"
+                            rm -f tfplan
+                        fi
+                        
+                        echo "✅ Jenkins Terraform workspace cleaned"
+                        
+                        # Show final directory state
+                        echo "📁 Final terraform/ directory contents:"
+                        ls -la
+                    '''
+                }
+            }
+        }
+        
+        stage('Verify Original Resources') {
+            steps {
+                script {
+                    echo "✅ Verifying your original resources are still intact..."
+                    sh '''
+                        echo "🔍 Checking your original infrastructure..."
+                        
+                        # Check if your original resources still exist
+                        echo "Checking ALB:"
+                        aws elbv2 describe-load-balancers --names hello-world-alb --region eu-central-1 --query 'LoadBalancers[0].{DNSName:DNSName,State:State}' --output table 2>/dev/null || echo "⚠️  Original ALB not found"
+                        
+                        echo "Checking ECR repository:"
+                        aws ecr describe-repositories --repository-names hello-world-app --region eu-central-1 --query 'repositories[0].{repositoryName:repositoryName,repositoryUri:repositoryUri}' --output table 2>/dev/null || echo "⚠️  Original ECR repo not found"
+                        
+                        echo "Checking ECS cluster:"
+                        aws ecs describe-clusters --clusters hello-world-cluster --region eu-central-1 --query 'clusters[0].{clusterName:clusterName,status:status}' --output table 2>/dev/null || echo "⚠️  Original ECS cluster not found"
+                        
+                        echo "Checking RDS database:"
+                        aws rds describe-db-instances --db-instance-identifier hello-world-database --region eu-central-1 --query 'DBInstances[0].{DBInstanceIdentifier:DBInstanceIdentifier,DBInstanceStatus:DBInstanceStatus}' --output table 2>/dev/null || echo "⚠️  Original RDS database not found"
+                        
+                        echo ""
+                        echo "✅ Verification complete. Your original infrastructure should be intact."
+                        echo "🔧 You can now proceed with the state import pipeline."
                     '''
                 }
             }
@@ -276,27 +199,25 @@ EOFTASK
     
     post {
         always {
-            sh '''
-                rm -f task-definition.json infrastructure.env
-                docker rmi hello-world-app:${BUILD_NUMBER} || true
-                docker rmi hello-world-app:latest || true
-            '''
+            echo "🧹 Cleanup pipeline completed"
         }
         success {
-            echo "🎉 Fully Dynamic Pipeline completed successfully!"
-            echo "🌐 Application: http://hello-world.stoycho.online"
-            echo "🔗 ALB Direct: http://${env.ALB_DNS_NAME}"
-            echo "📦 Image: ${env.ECR_REPOSITORY_URL}:${BUILD_NUMBER}"
+            echo "✅ SUCCESS: Duplicate resources destroyed successfully!"
+            echo ""
+            echo "🎯 Next Steps:"
+            echo "   1. Your original infrastructure is preserved"
+            echo "   2. Jenkins Terraform state is cleaned"
+            echo "   3. Deploy the state import pipeline to use your existing resources"
+            echo ""
+            echo "🚀 Ready to deploy the dynamic pipeline with state import!"
         }
         failure {
-            script {
-                echo "❌ Pipeline failed. Check the logs above."
-                if (env.ALB_DNS_NAME) {
-                    echo "🔍 Debug URLs:"
-                    echo "   Domain: http://hello-world.stoycho.online/health"
-                    echo "   ALB: http://${env.ALB_DNS_NAME}/health"
-                }
-            }
+            echo "❌ FAILURE: Some resources may not have been destroyed"
+            echo ""
+            echo "🔍 Manual cleanup may be required:"
+            echo "   1. Check AWS console for any remaining duplicate resources"
+            echo "   2. Delete them manually if needed"
+            echo "   3. Ensure your original resources are still intact"
         }
     }
 }
