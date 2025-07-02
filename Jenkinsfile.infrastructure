@@ -1,0 +1,310 @@
+// Jenkinsfile.infrastructure
+// Infrastructure Management Pipeline - Manual Terraform Operations
+
+pipeline {
+    agent any
+    
+    parameters {
+        choice(
+            name: 'TERRAFORM_ACTION',
+            choices: ['none', 'plan', 'apply', 'destroy'],
+            description: 'Select Terraform action (apply/destroy require manual trigger)'
+        )
+        booleanParam(
+            name: 'FORCE_TERRAFORM',
+            defaultValue: false,
+            description: 'Force Terraform execution (bypass safety checks)'
+        )
+        string(
+            name: 'DB_PASSWORD',
+            defaultValue: '',
+            description: 'Database password (required for apply/destroy)'
+        )
+    }
+    
+    environment {
+        AWS_DEFAULT_REGION = 'eu-central-1'
+        TF_VAR_db_password = "${params.DB_PASSWORD}"
+        TF_VAR_aws_region = 'eu-central-1'
+        TF_VAR_project_name = 'hello-world'
+        TF_VAR_environment = 'production'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                echo "🏗️ Infrastructure Management Pipeline"
+                echo "Selected action: ${params.TERRAFORM_ACTION}"
+            }
+        }
+        
+        stage('Validate Parameters') {
+            when {
+                anyOf {
+                    expression { params.TERRAFORM_ACTION == 'apply' }
+                    expression { params.TERRAFORM_ACTION == 'destroy' }
+                }
+            }
+            steps {
+                script {
+                    if (!params.DB_PASSWORD) {
+                        error("❌ DB_PASSWORD parameter is required for ${params.TERRAFORM_ACTION}")
+                    }
+                    
+                    if (!params.FORCE_TERRAFORM) {
+                        echo "⚠️ SAFETY CHECK: This will ${params.TERRAFORM_ACTION} your infrastructure!"
+                        echo "💡 If you're sure, re-run with FORCE_TERRAFORM=true"
+                        error("Safety check failed - use FORCE_TERRAFORM=true to proceed")
+                    }
+                    
+                    echo "✅ Safety checks passed for ${params.TERRAFORM_ACTION}"
+                }
+            }
+        }
+        
+        stage('Terraform Init') {
+            when {
+                not { expression { params.TERRAFORM_ACTION == 'none' } }
+            }
+            steps {
+                dir('terraform') {
+                    sh '''
+                        echo "🔧 Initializing Terraform..."
+                        terraform init
+                        terraform validate
+                        echo "✅ Terraform initialized and validated"
+                    '''
+                }
+            }
+        }
+        
+        stage('Terraform Plan') {
+            when {
+                anyOf {
+                    expression { params.TERRAFORM_ACTION == 'plan' }
+                    expression { params.TERRAFORM_ACTION == 'apply' }
+                }
+            }
+            steps {
+                dir('terraform') {
+                    sh '''
+                        echo "📋 Creating Terraform plan..."
+                        terraform plan -out=tfplan
+                        
+                        echo "📊 Plan summary:"
+                        terraform show -no-color tfplan | head -50
+                    '''
+                }
+            }
+        }
+        
+        stage('Terraform Apply') {
+            when {
+                expression { params.TERRAFORM_ACTION == 'apply' }
+            }
+            steps {
+                dir('terraform') {
+                    sh '''
+                        echo "🚀 Applying Terraform changes..."
+                        terraform apply -auto-approve tfplan
+                        
+                        echo "📤 Terraform outputs:"
+                        terraform output
+                        
+                        echo "✅ Infrastructure deployment completed!"
+                    '''
+                }
+            }
+        }
+        
+        stage('Terraform Destroy Plan') {
+            when {
+                expression { params.TERRAFORM_ACTION == 'destroy' }
+            }
+            steps {
+                dir('terraform') {
+                    sh '''
+                        echo "💥 Creating destruction plan..."
+                        terraform plan -destroy -out=destroy-plan
+                        
+                        echo "⚠️ DESTRUCTION PLAN SUMMARY:"
+                        terraform show -no-color destroy-plan | head -50
+                    '''
+                }
+            }
+        }
+        
+        stage('Terraform Destroy') {
+            when {
+                expression { params.TERRAFORM_ACTION == 'destroy' }
+            }
+            steps {
+                script {
+                    echo "🔥 FINAL WARNING: About to destroy infrastructure!"
+                    echo "⏳ Sleeping 10 seconds - press Ctrl+C to abort..."
+                    sleep 10
+                }
+                
+                dir('terraform') {
+                    sh '''
+                        echo "💥 Destroying infrastructure..."
+                        terraform apply -auto-approve destroy-plan
+                        
+                        echo "✅ Infrastructure destroyed!"
+                    '''
+                }
+            }
+        }
+        
+        stage('Export Resource Information') {
+            when {
+                anyOf {
+                    expression { params.TERRAFORM_ACTION == 'apply' }
+                    expression { params.TERRAFORM_ACTION == 'none' }
+                }
+            }
+            steps {
+                script {
+                    echo "📡 Discovering AWS resources dynamically..."
+                    
+                    sh '''
+                        echo "🔍 Discovering resources via AWS CLI..."
+                        
+                        # Check if infrastructure exists
+                        RESOURCES_FOUND=0
+                        
+                        # Function to discover resources
+                        discover_resource() {
+                            local resource_type=$1
+                            local aws_command=$2
+                            local var_name=$3
+                            
+                            if eval "$aws_command" >/dev/null 2>&1; then
+                                local value=$(eval "$aws_command" 2>/dev/null)
+                                echo "${var_name}=$value" >> aws-resources.env
+                                echo "✅ $resource_type found: $value"
+                                return 0
+                            else
+                                echo "${var_name}=" >> aws-resources.env
+                                echo "❌ $resource_type not found"
+                                return 1
+                            fi
+                        }
+                        
+                        # Initialize resource file
+                        cat > aws-resources.env << EOF
+# Auto-generated AWS resource inventory
+# Generated: $(date)
+# Pipeline: Infrastructure-${BUILD_NUMBER}
+
+EOF
+                        
+                        # Discover each resource
+                        discover_resource "ALB" \
+                            "aws elbv2 describe-load-balancers --names hello-world-alb --region eu-central-1 --query 'LoadBalancers[0].DNSName' --output text" \
+                            "ALB_DNS_NAME" && RESOURCES_FOUND=$((RESOURCES_FOUND + 1))
+                            
+                        discover_resource "ECR Repository" \
+                            "aws ecr describe-repositories --repository-names hello-world-app --region eu-central-1 --query 'repositories[0].repositoryUri' --output text" \
+                            "ECR_REPOSITORY_URL" && RESOURCES_FOUND=$((RESOURCES_FOUND + 1))
+                            
+                        discover_resource "ECS Cluster" \
+                            "aws ecs describe-clusters --clusters hello-world-cluster --region eu-central-1 --query 'clusters[0].clusterName' --output text" \
+                            "ECS_CLUSTER_NAME" && RESOURCES_FOUND=$((RESOURCES_FOUND + 1))
+                            
+                        discover_resource "ECS Service" \
+                            "aws ecs describe-services --cluster hello-world-cluster --services hello-world-service --region eu-central-1 --query 'services[0].serviceName' --output text" \
+                            "ECS_SERVICE_NAME" && RESOURCES_FOUND=$((RESOURCES_FOUND + 1))
+                            
+                        discover_resource "RDS Database" \
+                            "aws rds describe-db-instances --db-instance-identifier hello-world-database --region eu-central-1 --query 'DBInstances[0].Endpoint.Address' --output text" \
+                            "DB_HOST" && RESOURCES_FOUND=$((RESOURCES_FOUND + 1))
+                        
+                        # Add static/derived values
+                        echo "TASK_FAMILY=hello-world-task" >> aws-resources.env
+                        echo "LOG_GROUP_NAME=/ecs/hello-world" >> aws-resources.env
+                        
+                        AWS_ACCOUNT=$(aws sts get-caller-identity --query 'Account' --output text 2>/dev/null || echo "unknown")
+                        echo "AWS_ACCOUNT_ID=$AWS_ACCOUNT" >> aws-resources.env
+                        echo "TASK_EXECUTION_ROLE_ARN=arn:aws:iam::$AWS_ACCOUNT:role/hello-world-ecs-task-execution-role" >> aws-resources.env
+                        echo "TASK_ROLE_ARN=arn:aws:iam::$AWS_ACCOUNT:role/hello-world-ecs-task-role" >> aws-resources.env
+                        
+                        # Application URLs
+                        ALB_DNS=$(grep "ALB_DNS_NAME=" aws-resources.env | cut -d'=' -f2)
+                        echo "APPLICATION_URL=http://hello-world.stoycho.online" >> aws-resources.env
+                        echo "HEALTH_CHECK_URL=http://hello-world.stoycho.online/health" >> aws-resources.env
+                        echo "ALB_DIRECT_URL=http://$ALB_DNS" >> aws-resources.env
+                        echo "RESOURCES_FOUND=$RESOURCES_FOUND" >> aws-resources.env
+                        
+                        # Summary
+                        echo ""
+                        echo "📊 INFRASTRUCTURE DISCOVERY SUMMARY:"
+                        echo "   Resources found: $RESOURCES_FOUND/5 core resources"
+                        
+                        if [ "$RESOURCES_FOUND" -eq 5 ]; then
+                            echo "✅ All core infrastructure resources discovered!"
+                        elif [ "$RESOURCES_FOUND" -gt 0 ]; then
+                            echo "⚠️ Partial infrastructure found ($RESOURCES_FOUND/5)"
+                        else
+                            echo "❌ No infrastructure found - may need to run 'terraform apply'"
+                        fi
+                    '''
+                    
+                    // Archive the resource file for other pipelines
+                    archiveArtifacts artifacts: 'aws-resources.env', fingerprint: true
+                    
+                    // Display resource summary
+                    def resourceFile = readFile('aws-resources.env')
+                    echo "📋 Resource inventory saved to aws-resources.env:"
+                    echo resourceFile
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            script {
+                dir('terraform') {
+                    sh 'rm -f tfplan destroy-plan'
+                }
+            }
+        }
+        success {
+            script {
+                def action = params.TERRAFORM_ACTION
+                switch(action) {
+                    case 'none':
+                        echo "✅ Resource discovery completed"
+                        echo "📋 Resource file available for app deployment pipeline"
+                        break
+                    case 'plan':
+                        echo "✅ Terraform plan completed - review the changes above"
+                        break
+                    case 'apply':
+                        echo "🎉 Infrastructure successfully deployed!"
+                        echo "🔧 Next steps:"
+                        echo "   1. Run the App Deployment pipeline: hello-world-app-deployment"
+                        echo "   2. Check application at: http://hello-world.stoycho.online"
+                        break
+                    case 'destroy':
+                        echo "💥 Infrastructure successfully destroyed"
+                        echo "⚠️ All resources have been removed"
+                        break
+                }
+            }
+        }
+        failure {
+            script {
+                def action = params.TERRAFORM_ACTION
+                echo "❌ Infrastructure pipeline failed during: ${action}"
+                
+                if (action == 'apply' || action == 'destroy') {
+                    echo "🔍 Check the Terraform logs above for details"
+                    echo "💡 You may need to manually check AWS console"
+                }
+            }
+        }
+    }
+}
