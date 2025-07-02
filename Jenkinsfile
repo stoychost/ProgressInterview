@@ -31,25 +31,26 @@ pipeline {
                     echo "🔍 Getting current infrastructure details..."
                     sh '''
                         cd terraform
-                        # Get all Jenkins environment variables from Terraform output
-                        terraform output -json jenkins_environment_variables > ../jenkins_vars.json
-                        
-                        # Extract specific values we need immediately
-                        ALB_DNS=$(terraform output -json jenkins_environment_variables | jq -r '.ALB_DNS_NAME')
-                        DB_HOST=$(terraform output -json jenkins_environment_variables | jq -r '.DB_HOST')
-                        ECR_REPO=$(terraform output -json jenkins_environment_variables | jq -r '.ECR_REPOSITORY_URL')
+                        # Get individual outputs that exist in current state
+                        ALB_DNS=$(terraform output -raw alb_dns_name)
+                        DB_HOST=$(terraform output -raw rds_endpoint | cut -d: -f1)
+                        ECR_REPO=$(terraform output -raw ecr_repository_url)
+                        TASK_EXEC_ROLE=$(terraform output -raw ecs_task_execution_role_arn)
+                        TASK_ROLE=$(terraform output -raw ecs_task_role_arn)
                         
                         echo "Current ALB DNS: $ALB_DNS"
                         echo "Current DB Host: $DB_HOST" 
                         echo "Current ECR Repo: $ECR_REPO"
+                        echo "Current Task Execution Role: $TASK_EXEC_ROLE"
+                        echo "Current Task Role: $TASK_ROLE"
                         
                         # Create environment file for Jenkins
                         cat > ../infrastructure.env << EOF
 ALB_DNS_NAME=$ALB_DNS
 DB_HOST=$DB_HOST
 ECR_REPOSITORY_URL=$ECR_REPO
-TASK_EXECUTION_ROLE_ARN=$(terraform output -json jenkins_environment_variables | jq -r '.TASK_EXECUTION_ROLE_ARN')
-TASK_ROLE_ARN=$(terraform output -json jenkins_environment_variables | jq -r '.TASK_ROLE_ARN')
+TASK_EXECUTION_ROLE_ARN=$TASK_EXEC_ROLE
+TASK_ROLE_ARN=$TASK_ROLE
 EOF
                     '''
                     
@@ -208,13 +209,25 @@ EOFTASK
         success {
             echo "🎉 Pipeline completed successfully!"
             echo "🌐 Application: http://hello-world.stoycho.online"
-            echo "🔗 ALB Direct: http://${ALB_DNS_NAME}"
+            script {
+                if (env.ALB_DNS_NAME) {
+                    echo "🔗 ALB Direct: http://${env.ALB_DNS_NAME}"
+                }
+            }
         }
         failure {
             echo "❌ Pipeline failed. Check the logs above."
-            echo "🔍 Debug URLs:"
-            echo "   Domain: http://hello-world.stoycho.online/health"
-            echo "   ALB: http://${ALB_DNS_NAME}/health"
+            script {
+                if (env.ALB_DNS_NAME) {
+                    echo "🔍 Debug URLs:"
+                    echo "   Domain: http://hello-world.stoycho.online/health"
+                    echo "   ALB: http://${env.ALB_DNS_NAME}/health"
+                } else {
+                    echo "🔍 Debug URLs:"
+                    echo "   Domain: http://hello-world.stoycho.online/health"
+                    echo "   ALB: (Could not retrieve ALB DNS from infrastructure)"
+                }
+            }
         }
     }
 }
