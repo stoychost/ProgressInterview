@@ -71,7 +71,7 @@ pipeline {
                         # Get current task definition family
                         if aws ecs describe-services --cluster hello-world-cluster --services hello-world-service --region eu-central-1 >/dev/null 2>&1; then
                             CURRENT_TASK_DEF=$(aws ecs describe-services --cluster hello-world-cluster --services hello-world-service --region eu-central-1 --query 'services[0].taskDefinition' --output text 2>/dev/null)
-                            TASK_FAMILY=$(echo $CURRENT_TASK_DEF | cut -d'/' -f1 | cut -d':' -f1)
+                            TASK_FAMILY=$(echo $CURRENT_TASK_DEF | cut -d'/' -f2 | cut -d':' -f1)
                             echo "TASK_FAMILY=$TASK_FAMILY" >> aws-resources.env
                         else
                             echo "TASK_FAMILY=hello-world-task" >> aws-resources.env
@@ -269,8 +269,7 @@ EOF
                         # Wait for service to stabilize (max 10 minutes)
                         aws ecs wait services-stable \
                             --cluster ${ECS_CLUSTER_NAME} \
-                            --services ${ECS_SERVICE_NAME} \
-                            --max-items 1
+                            --services ${ECS_SERVICE_NAME}
                         
                         # Get service status
                         RUNNING_COUNT=$(aws ecs describe-services \
