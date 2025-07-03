@@ -1,5 +1,5 @@
 # terraform/main.tf
-# AWS infrastructure for Hello World microservice - Infrastructure Only
+# AWS infrastructure for Hello World microservice - Infrastructure Only; a task def with ":initial" tag will be created to keep TGs healthy.
 # Task definitions and deployments will be handled by CI/CD pipeline
 
 terraform {
@@ -8,6 +8,10 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.1"
     }
   }
 }

@@ -111,3 +111,7 @@ coverage/
 *.bak
 *.backup
 *.sql.gz
+# Terraform generated files
+terraform/tfplan*
+terraform/aws-resources.env
+terraform/\{

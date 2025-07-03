@@ -286,32 +286,46 @@ output "docker_build_and_push_commands" {
 }
 
 # ===============================
-# COST ESTIMATION
+# SECRETS MANAGER OUTPUTS
 # ===============================
 
-output "estimated_monthly_cost" {
-  description = "Estimated monthly AWS costs"
-  value = <<-EOT
-    💰 ESTIMATED MONTHLY COSTS (EU-Central-1):
-    
-    🆓 FREE TIER ELIGIBLE (first 12 months):
-    - RDS db.t3.micro: €0 (750 hours/month free)
-    - ECS Fargate: €0 (limited free hours)
-    
-    💸 PAID RESOURCES:
-    - ALB: ~€18.50/month
-    - NAT Gateway: ~€35.50/month  
-    - ECS Fargate (after free tier): ~€3.50/month
-    - Route53 Hosted Zone: €0.46/month
-    - CloudWatch Logs: ~€1-2/month
-    - Data Transfer: ~€1-3/month
-    
-    📊 TOTAL ESTIMATED: €59-65/month
-    
-    💡 COST OPTIMIZATION TIPS:
-    - Use VPC Endpoints to avoid NAT Gateway costs (-€35.50/month)
-    - Use Fargate Spot instances for 60-70% savings
-    - Monitor CloudWatch usage to stay within free tier
-    
-  EOT
+output "db_secret_arn" {
+  description = "ARN of the database secret in AWS Secrets Manager"
+  value       = aws_secretsmanager_secret.db_password.arn
+}
+
+output "db_secret_name" {
+  description = "Name of the database secret in AWS Secrets Manager"
+  value       = aws_secretsmanager_secret.db_password.name
+}
+
+# Update the existing database_password output to reference the secret
+output "database_password" {
+  description = "Database password is stored in AWS Secrets Manager"
+  value       = "Password stored in AWS Secrets Manager: ${aws_secretsmanager_secret.db_password.name}"
+  sensitive   = false  # This is just a reference message, not the actual password
+}
+
+# Update jenkins_environment_variables to include secret ARN
+output "jenkins_environment_variables" {
+  description = "Environment variables for Jenkins pipeline"
+  value = {
+    AWS_REGION               = var.aws_region
+    ECR_REPOSITORY_URL       = aws_ecr_repository.app.repository_url
+    ECS_CLUSTER_NAME         = aws_ecs_cluster.main.name
+    ECS_SERVICE_NAME         = aws_ecs_service.main.name
+    ALB_DNS_NAME             = aws_lb.main.dns_name
+    DB_HOST                  = split(":", aws_db_instance.main.endpoint)[0]
+    DB_SECRET_ARN            = aws_secretsmanager_secret.db_password.arn  # Add this
+    ROUTE53_ZONE_ID          = var.domain_name != "" ? aws_route53_zone.main[0].zone_id : ""
+    DOMAIN_NAME              = var.domain_name
+    TARGET_GROUP_ARN         = aws_lb_target_group.app.arn
+    ECS_SECURITY_GROUP_ID    = aws_security_group.ecs.id
+    PRIVATE_SUBNET_IDS       = join(",", aws_subnet.private[*].id)
+    TASK_EXECUTION_ROLE_ARN  = aws_iam_role.ecs_task_execution.arn
+    TASK_ROLE_ARN            = aws_iam_role.ecs_task.arn
+    LOG_GROUP_NAME           = aws_cloudwatch_log_group.app.name
+    TASK_FAMILY              = aws_ecs_task_definition.main.family
+  }
+  sensitive = false  # No sensitive data here anymore
 }
