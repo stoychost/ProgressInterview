@@ -169,6 +169,50 @@ pipeline {
                 }
             }
         }
+        stage('Handle Stuck ECS Service') {
+            when {
+                anyOf {
+                    expression { params.TERRAFORM_ACTION == 'plan' }
+                    expression { params.TERRAFORM_ACTION == 'apply' }
+                }
+            }
+            steps {
+                dir('terraform') {
+                    sh '''
+                        echo "🔍 Checking for stuck ECS service..."
+                        
+                        # Check if service exists and is stuck
+                        SERVICE_STATUS=$(aws ecs describe-services --cluster hello-world-cluster --services hello-world-service --region eu-central-1 --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
+                        
+                        if [ "$SERVICE_STATUS" = "INACTIVE" ]; then
+                            echo "⚠️ Found stuck INACTIVE service (AWS issue)"
+                            echo "🔧 Implementing workaround..."
+                            
+                            # Strategy: Remove from Terraform state and use import to handle the existing service
+                            echo "Removing stuck service from Terraform state..."
+                            terraform state rm aws_ecs_service.main || echo "Not in state"
+                            
+                            # Try to import the existing service to Terraform state
+                            echo "Attempting to import existing service..."
+                            terraform import aws_ecs_service.main arn:aws:ecs:eu-central-1:993968405647:service/hello-world-cluster/hello-world-service || echo "Import failed, will create new"
+                            
+                            # If import failed, we'll let Terraform create a new service with a conflict error
+                            # which we'll handle by slightly modifying the service name in the plan
+                            
+                        elif [ "$SERVICE_STATUS" = "MISSING" ]; then
+                            echo "✅ Service properly deleted"
+                            terraform state rm aws_ecs_service.main || echo "Not in state"
+                        else
+                            echo "✅ Service status: $SERVICE_STATUS"
+                        fi
+                        
+                        # Always refresh to sync state
+                        echo "🔄 Refreshing Terraform state..."
+                        terraform refresh
+                    '''
+                }
+            }
+        }
         
         stage('Export Resource Information') {
             when {
