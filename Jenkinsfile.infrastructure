@@ -15,12 +15,16 @@ pipeline {
             defaultValue: false,
             description: 'Force Terraform execution (bypass safety checks)'
         )
-        // DB_PASSWORD parameter is no longer needed!
+        // ADD THIS NEW PARAMETER:
+        string(
+            name: 'GIT_BRANCH',
+            defaultValue: 'main',
+            description: 'Git branch to build from (e.g., main, aws-db-secret)'
+        )
     }
     
     environment {
         AWS_DEFAULT_REGION = 'eu-central-1'
-        // TF_VAR_db_password is no longer needed!
         TF_VAR_aws_region = 'eu-central-1'
         TF_VAR_project_name = 'hello-world'
         TF_VAR_environment = 'production'
@@ -32,9 +36,19 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                // Checkout the specified branch
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "*/${params.GIT_BRANCH}"]],
+                    userRemoteConfigs: [[
+                        url: 'https://github.com/stoychost/ProgressInterview/',
+                        credentialsId: 'git_cred'
+                    ]]
+                ])
+                
                 echo "🏗️ Infrastructure Management Pipeline"
                 echo "Selected action: ${params.TERRAFORM_ACTION}"
+                echo "🌿 Building from branch: ${params.GIT_BRANCH}"
                 echo "🔐 Using AWS Secrets Manager for database password"
             }
         }
