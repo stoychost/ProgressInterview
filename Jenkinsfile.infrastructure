@@ -20,7 +20,19 @@ pipeline {
             defaultValue: '',
             description: 'Database password (required for apply/destroy)'
         )
+
+        string(
+
+            name: 'GIT_BRANCH',
+
+            defaultValue: 'main',
+
+            description: 'Git branch to build from (e.g., main, aws-db-secret)'
+
+        )
+
     }
+    
     
 environment {
         AWS_DEFAULT_REGION = 'eu-central-1'
@@ -35,13 +47,43 @@ environment {
         TF_VAR_private_zone = 'false'
     }
     
+
     stages {
+
         stage('Checkout') {
+
             steps {
-                checkout scm
+
+                // Checkout the specified branch
+
+                checkout([
+
+                    $class: 'GitSCM',
+
+                    branches: [[name: "*/${params.GIT_BRANCH}"]],
+
+                    userRemoteConfigs: [[
+
+                        url: 'https://github.com/stoychost/ProgressInterview/',
+
+                        credentialsId: 'git_cred'
+
+                    ]]
+
+                ])
+
+                
+
                 echo "🏗️ Infrastructure Management Pipeline"
+
                 echo "Selected action: ${params.TERRAFORM_ACTION}"
+
+                echo "🌿 Building from branch: ${params.GIT_BRANCH}"
+
+                echo "🔐 Using AWS Secrets Manager for database password"
+
             }
+
         }
         
         stage('Validate Parameters') {
