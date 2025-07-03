@@ -37,10 +37,10 @@ resource "aws_secretsmanager_secret_version" "db_password" {
   })
 }
 
-# IAM policy for ECS tasks to read the secret
+# IAM policy for ECS TASK EXECUTION ROLE to read the secret
 resource "aws_iam_policy" "ecs_secrets_policy" {
   name        = "${var.project_name}-ecs-secrets-policy"
-  description = "Policy for ECS tasks to read database secrets"
+  description = "Policy for ECS task execution role to read database secrets"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -57,8 +57,8 @@ resource "aws_iam_policy" "ecs_secrets_policy" {
   })
 }
 
-# Attach the policy to the ECS task role
-resource "aws_iam_role_policy_attachment" "ecs_task_execution_secrets_policy" {
-  role       = aws_iam_role.ecs_task_execution.name
-  policy_arn = aws_iam_policy.ecs_task_execution_secrets_policy.arn
+# Attach the policy to the ECS TASK EXECUTION ROLE (this is the KEY fix!)
+resource "aws_iam_role_policy_attachment" "ecs_secrets_policy" {
+  role       = aws_iam_role.ecs_task_execution.name  # Changed from ecs_task to ecs_task_execution
+  policy_arn = aws_iam_policy.ecs_secrets_policy.arn
 }
