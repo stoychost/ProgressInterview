@@ -262,9 +262,9 @@ pipeline {
 EOF
 
                         # Replace placeholders with actual values
-                        sed -i "s|PLACEHOLDER_ECR_IMAGE|${ECR_REPOSITORY_URL}:${BUILD_NUMBER}|g" task-definition.json
-                        sed -i "s|PLACEHOLDER_DB_HOST|${DB_HOST}|g" task-definition.json
-                        sed -i "s|PLACEHOLDER_SECRET_ARN|${DB_SECRET_ARN}:password::|g" task-definition.json
+                        sed -i "" "s|PLACEHOLDER_ECR_IMAGE|${ECR_REPOSITORY_URL}:${BUILD_NUMBER}|g" task-definition.json
+                        sed -i "" "s|PLACEHOLDER_DB_HOST|${DB_HOST}|g" task-definition.json
+                        sed -i "" "s|PLACEHOLDER_SECRET_ARN|${DB_SECRET_ARN}:password::|g" task-definition.json
                         
                         # Validate JSON
                         echo "🔍 Validating JSON..."
