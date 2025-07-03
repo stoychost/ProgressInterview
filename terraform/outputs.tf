@@ -82,10 +82,24 @@ output "database_username" {
   value       = aws_db_instance.main.username
 }
 
+# ===============================
+# SECRETS MANAGER OUTPUTS
+# ===============================
+
+output "db_secret_arn" {
+  description = "ARN of the database secret in AWS Secrets Manager"
+  value       = aws_secretsmanager_secret.db_password.arn
+}
+
+output "db_secret_name" {
+  description = "Name of the database secret in AWS Secrets Manager"
+  value       = aws_secretsmanager_secret.db_password.name
+}
+
 output "database_password" {
-  description = "Database password (for CI/CD use)"
-  value       = var.db_password
-  sensitive   = true
+  description = "Database password is stored in AWS Secrets Manager"
+  value       = "Password stored in AWS Secrets Manager: ${aws_secretsmanager_secret.db_password.name}"
+  sensitive   = false  # This is just a reference message, not the actual password
 }
 
 output "jenkins_environment_variables" {
@@ -97,7 +111,7 @@ output "jenkins_environment_variables" {
     ECS_SERVICE_NAME         = aws_ecs_service.main.name
     ALB_DNS_NAME             = aws_lb.main.dns_name
     DB_HOST                  = split(":", aws_db_instance.main.endpoint)[0]
-    DB_PASSWORD              = var.db_password
+    DB_SECRET_ARN            = aws_secretsmanager_secret.db_password.arn
     ROUTE53_ZONE_ID          = var.domain_name != "" ? aws_route53_zone.main[0].zone_id : ""
     DOMAIN_NAME              = var.domain_name
     TARGET_GROUP_ARN         = aws_lb_target_group.app.arn
@@ -108,7 +122,7 @@ output "jenkins_environment_variables" {
     LOG_GROUP_NAME           = aws_cloudwatch_log_group.app.name
     TASK_FAMILY              = aws_ecs_task_definition.main.family
   }
-  sensitive = true
+  sensitive = false  # No sensitive data here anymore
 }
 
 # ===============================
@@ -162,7 +176,6 @@ output "ecs_task_definition_family" {
   description = "Family of the ECS task definition"
   value       = aws_ecs_task_definition.main.family
 }
-
 
 # ===============================
 # LOAD BALANCER OUTPUTS
@@ -263,7 +276,6 @@ output "aws_account_id" {
   value       = data.aws_caller_identity.current.account_id
 }
 
-
 # ===============================
 # DOCKER BUILD COMMANDS (For Manual Testing)
 # ===============================
@@ -283,35 +295,4 @@ output "docker_build_and_push_commands" {
     "",
     "# Note: ECS deployment is now handled by CI/CD pipeline, not manual commands"
   ])
-}
-
-# ===============================
-# COST ESTIMATION
-# ===============================
-
-output "estimated_monthly_cost" {
-  description = "Estimated monthly AWS costs"
-  value = <<-EOT
-    💰 ESTIMATED MONTHLY COSTS (EU-Central-1):
-    
-    🆓 FREE TIER ELIGIBLE (first 12 months):
-    - RDS db.t3.micro: €0 (750 hours/month free)
-    - ECS Fargate: €0 (limited free hours)
-    
-    💸 PAID RESOURCES:
-    - ALB: ~€18.50/month
-    - NAT Gateway: ~€35.50/month  
-    - ECS Fargate (after free tier): ~€3.50/month
-    - Route53 Hosted Zone: €0.46/month
-    - CloudWatch Logs: ~€1-2/month
-    - Data Transfer: ~€1-3/month
-    
-    📊 TOTAL ESTIMATED: €59-65/month
-    
-    💡 COST OPTIMIZATION TIPS:
-    - Use VPC Endpoints to avoid NAT Gateway costs (-€35.50/month)
-    - Use Fargate Spot instances for 60-70% savings
-    - Monitor CloudWatch usage to stay within free tier
-    
-  EOT
 }

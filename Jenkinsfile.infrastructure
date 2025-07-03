@@ -15,75 +15,42 @@ pipeline {
             defaultValue: false,
             description: 'Force Terraform execution (bypass safety checks)'
         )
-        // string(
-        //     name: 'DB_PASSWORD',
-        //     defaultValue: '',
-        //     description: 'Database password (required for apply/destroy)'
-        // )
-
+        // ADD THIS NEW PARAMETER:
         string(
-
             name: 'GIT_BRANCH',
-
             defaultValue: 'main',
-
             description: 'Git branch to build from (e.g., main, aws-db-secret)'
-
         )
-
     }
     
-    
-environment {
+    environment {
         AWS_DEFAULT_REGION = 'eu-central-1'
-        TF_VAR_db_password = "${params.DB_PASSWORD}"
         TF_VAR_aws_region = 'eu-central-1'
         TF_VAR_project_name = 'hello-world'
         TF_VAR_environment = 'production'
-        
-        // ADD THESE 3 LINES TO ENABLE ROUTE53:
         TF_VAR_domain_name = 'hello-world.stoycho.online'
         TF_VAR_hosted_zone_name = 'stoycho.online'
         TF_VAR_private_zone = 'false'
     }
     
-
     stages {
-
         stage('Checkout') {
-
             steps {
-
                 // Checkout the specified branch
-
                 checkout([
-
                     $class: 'GitSCM',
-
                     branches: [[name: "*/${params.GIT_BRANCH}"]],
-
                     userRemoteConfigs: [[
-
                         url: 'https://github.com/stoychost/ProgressInterview/',
-
                         credentialsId: 'git_cred'
-
                     ]]
-
                 ])
-
                 
-
                 echo "🏗️ Infrastructure Management Pipeline"
-
                 echo "Selected action: ${params.TERRAFORM_ACTION}"
-
                 echo "🌿 Building from branch: ${params.GIT_BRANCH}"
-
                 echo "🔐 Using AWS Secrets Manager for database password"
-
             }
-
         }
         
         stage('Validate Parameters') {
@@ -95,10 +62,6 @@ environment {
             }
             steps {
                 script {
-                    if (!params.DB_PASSWORD) {
-                        error("❌ DB_PASSWORD parameter is required for ${params.TERRAFORM_ACTION}")
-                    }
-                    
                     if (!params.FORCE_TERRAFORM) {
                         echo "⚠️ SAFETY CHECK: This will ${params.TERRAFORM_ACTION} your infrastructure!"
                         echo "💡 If you're sure, re-run with FORCE_TERRAFORM=true"
@@ -106,9 +69,12 @@ environment {
                     }
                     
                     echo "✅ Safety checks passed for ${params.TERRAFORM_ACTION}"
+                    echo "🌐 Will create Route53 zone for: hello-world.stoycho.online"
+                    echo "🔐 Database password will be auto-generated and stored in AWS Secrets Manager"
                 }
             }
         }
+
         
         stage('Terraform Init') {
             when {

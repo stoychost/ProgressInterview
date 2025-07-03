@@ -25,16 +25,16 @@ variable "environment" {
 # DB PASS
 # ===============================
 
-variable "db_password" {
-  description = "Database master password"
-  type        = string
-  sensitive   = true
-  
-  validation {
-    condition     = length(var.db_password) >= 8
-    error_message = "Database password must be at least 8 characters long."
-  }
-}
+#variable "db_password" {
+#  description = "Database master password"
+#  type        = string
+#  sensitive   = true
+#  
+#  validation {
+#    condition     = length(var.db_password) >= 8
+#    error_message = "Database password must be at least 8 characters long."
+#  }
+#}
 
 # ===============================
 # AWS CONFIGURATION

@@ -1,5 +1,5 @@
 # terraform/main.tf
-# AWS infrastructure for Hello World microservice - Infrastructure Only
+# AWS infrastructure for Hello World microservice - Infrastructure Only; a task def with ":initial" tag will be created to keep TGs healthy.
 # Task definitions and deployments will be handled by CI/CD pipeline
 
 terraform {
@@ -8,6 +8,10 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.1"
     }
   }
 }
@@ -323,7 +327,7 @@ resource "aws_db_instance" "main" {
   
   db_name  = var.db_name
   username = var.db_username
-  password = var.db_password
+  password = random_password.db_password.result
   
   vpc_security_group_ids = [aws_security_group.rds.id]
   db_subnet_group_name   = aws_db_subnet_group.main.name
@@ -519,10 +523,14 @@ resource "aws_ecs_task_definition" "main" {
         {
           name  = "DB_USER"
           value = aws_db_instance.main.username
-        },
+        }
+      ]
+
+      # Use secrets from AWS Secrets Manager
+      secrets = [
         {
-          name  = "DB_PASSWORD"
-          value = var.db_password
+          name      = "DB_PASSWORD"
+          valueFrom = "${aws_secretsmanager_secret.db_password.arn}:password::"
         }
       ]
 

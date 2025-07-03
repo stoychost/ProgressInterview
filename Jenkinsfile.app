@@ -67,6 +67,10 @@ pipeline {
                         discover_resource "RDS Database" \
                             "aws rds describe-db-instances --db-instance-identifier hello-world-database --region eu-central-1 --query 'DBInstances[0].Endpoint.Address' --output text" \
                             "DB_HOST"
+
+                        discover_resource "Database Secret" \
+                            "aws secretsmanager list-secrets --query \"SecretList[?Name=='hello-world-db-password'].ARN\" --output text" \
+                            "DB_SECRET_ARN"
                         
                         # Get current task definition family
                         if aws ecs describe-services --cluster hello-world-cluster --services hello-world-service --region eu-central-1 >/dev/null 2>&1; then
@@ -169,83 +173,98 @@ pipeline {
             }
         }
         
+
+
         stage('Update ECS Service') {
             steps {
                 script {
-                    echo "🚀 Deploying to ECS..."
+                    echo "🚀 Deploying to ECS with AWS Secrets Manager..."
                     sh '''
-                        # Create new task definition
+                        # Get the database secret ARN from AWS
+                        DB_SECRET_ARN=$(aws secretsmanager list-secrets --query "SecretList[?Name=='hello-world-db-password'].ARN" --output text)
+                        
+                        if [ -z "$DB_SECRET_ARN" ]; then
+                            echo "❌ Database secret not found in AWS Secrets Manager"
+                            echo "🔍 Available secrets:"
+                            aws secretsmanager list-secrets --query "SecretList[].Name" --output text
+                            exit 1
+                        fi
+                        
+                        echo "✅ Found database secret: $DB_SECRET_ARN"
+                        
+                        # Create new task definition with secrets
                         cat > task-definition.json << EOF
-{
-    "family": "${TASK_FAMILY}",
-    "networkMode": "awsvpc",
-    "requiresCompatibilities": ["FARGATE"],
-    "cpu": "256",
-    "memory": "512",
-    "executionRoleArn": "${TASK_EXECUTION_ROLE_ARN}",
-    "taskRoleArn": "${TASK_ROLE_ARN}",
-    "containerDefinitions": [
         {
-            "name": "php-app",
-            "image": "${ECR_REPOSITORY_URL}:${BUILD_NUMBER}",
-            "portMappings": [
+            "family": "${TASK_FAMILY}",
+            "networkMode": "awsvpc",
+            "requiresCompatibilities": ["FARGATE"],
+            "cpu": "256",
+            "memory": "512",
+            "executionRoleArn": "${TASK_EXECUTION_ROLE_ARN}",
+            "taskRoleArn": "${TASK_ROLE_ARN}",
+            "containerDefinitions": [
                 {
-                    "containerPort": 8000,
-                    "protocol": "tcp"
+                    "name": "php-app",
+                    "image": "${ECR_REPOSITORY_URL}:${BUILD_NUMBER}",
+                    "portMappings": [
+                        {
+                            "containerPort": 8000,
+                            "protocol": "tcp"
+                        }
+                    ],
+                    "environment": [
+                        {
+                            "name": "APP_ENV",
+                            "value": "production"
+                        },
+                        {
+                            "name": "DB_HOST",
+                            "value": "${DB_HOST}"
+                        },
+                        {
+                            "name": "DB_NAME",
+                            "value": "hello_world"
+                        },
+                        {
+                            "name": "DB_USER",
+                            "value": "app_user"
+                        }
+                    ],
+                    "secrets": [
+                        {
+                            "name": "DB_PASSWORD",
+                            "valueFrom": "${DB_SECRET_ARN}:password::"
+                        }
+                    ],
+                    "logConfiguration": {
+                        "logDriver": "awslogs",
+                        "options": {
+                            "awslogs-group": "${LOG_GROUP_NAME}",
+                            "awslogs-region": "${AWS_DEFAULT_REGION}",
+                            "awslogs-stream-prefix": "ecs"
+                        }
+                    },
+                    "healthCheck": {
+                        "command": [
+                            "CMD-SHELL",
+                            "curl -f http://localhost:8000/health || exit 1"
+                        ],
+                        "interval": 30,
+                        "timeout": 5,
+                        "retries": 3,
+                        "startPeriod": 60
+                    },
+                    "essential": true
                 }
-            ],
-            "environment": [
-                {
-                    "name": "APP_ENV",
-                    "value": "production"
-                },
-                {
-                    "name": "DB_HOST",
-                    "value": "${DB_HOST}"
-                },
-                {
-                    "name": "DB_NAME",
-                    "value": "hello_world"
-                },
-                {
-                    "name": "DB_USER",
-                    "value": "app_user"
-                },
-                {
-                    "name": "DB_PASSWORD",
-                    "value": "${DB_PASSWORD}"
-                }
-            ],
-            "logConfiguration": {
-                "logDriver": "awslogs",
-                "options": {
-                    "awslogs-group": "${LOG_GROUP_NAME}",
-                    "awslogs-region": "${AWS_DEFAULT_REGION}",
-                    "awslogs-stream-prefix": "ecs"
-                }
-            },
-            "healthCheck": {
-                "command": [
-                    "CMD-SHELL",
-                    "curl -f http://localhost:8000/health || exit 1"
-                ],
-                "interval": 30,
-                "timeout": 5,
-                "retries": 3,
-                "startPeriod": 60
-            },
-            "essential": true
+            ]
         }
-    ]
-}
-EOF
+        EOF
 
-                        # Register new task definition
-                        echo "📝 Registering new task definition..."
+                        # Register and update service
+                        echo "📝 Registering new task definition with secrets..."
                         NEW_TASK_DEF=$(aws ecs register-task-definition --cli-input-json file://task-definition.json --query 'taskDefinition.taskDefinitionArn' --output text)
                         echo "✅ New task definition: $NEW_TASK_DEF"
                         
-                        # Update ECS service
                         echo "🔄 Updating ECS service..."
                         aws ecs update-service \
                             --cluster ${ECS_CLUSTER_NAME} \
@@ -253,7 +272,7 @@ EOF
                             --task-definition ${TASK_FAMILY} \
                             --desired-count 1
                         
-                        echo "✅ ECS service update initiated"
+                        echo "✅ ECS service update initiated with AWS Secrets Manager"
                     '''
                 }
             }
