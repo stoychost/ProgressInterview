@@ -58,7 +58,7 @@ resource "aws_iam_policy" "ecs_secrets_policy" {
 }
 
 # Attach the policy to the ECS task role
-resource "aws_iam_role_policy_attachment" "ecs_secrets_policy" {
-  role       = aws_iam_role.ecs_task.name
-  policy_arn = aws_iam_policy.ecs_secrets_policy.arn
+resource "aws_iam_role_policy_attachment" "ecs_task_execution_secrets_policy" {
+  role       = aws_iam_role.ecs_task_execution.name
+  policy_arn = aws_iam_policy.ecs_task_execution_secrets_policy.arn
 }
