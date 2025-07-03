@@ -15,11 +15,11 @@ pipeline {
             defaultValue: false,
             description: 'Force Terraform execution (bypass safety checks)'
         )
-        string(
-            name: 'DB_PASSWORD',
-            defaultValue: '',
-            description: 'Database password (required for apply/destroy)'
-        )
+        // string(
+        //     name: 'DB_PASSWORD',
+        //     defaultValue: '',
+        //     description: 'Database password (required for apply/destroy)'
+        // )
 
         string(
 
