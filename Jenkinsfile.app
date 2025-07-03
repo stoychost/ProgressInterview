@@ -1,12 +1,9 @@
-// Jenkinsfile.app  
-// Application Deployment Pipeline - Automated Docker Build & ECS Deploy
-
 pipeline {
     agent any
     
     environment {
         AWS_DEFAULT_REGION = 'eu-central-1'
-        DB_PASSWORD = credentials('db-password')
+        // Remove DB_PASSWORD = credentials('db-password') - not needed with Secrets Manager
     }
     
     stages {
@@ -72,14 +69,8 @@ pipeline {
                             "aws secretsmanager list-secrets --query \"SecretList[?Name=='hello-world-db-password'].ARN\" --output text" \
                             "DB_SECRET_ARN"
                         
-                        # Get current task definition family
-                        if aws ecs describe-services --cluster hello-world-cluster --services hello-world-service --region eu-central-1 >/dev/null 2>&1; then
-                            CURRENT_TASK_DEF=$(aws ecs describe-services --cluster hello-world-cluster --services hello-world-service --region eu-central-1 --query 'services[0].taskDefinition' --output text 2>/dev/null)
-                            TASK_FAMILY=$(echo $CURRENT_TASK_DEF | cut -d'/' -f2 | cut -d':' -f1)
-                            echo "TASK_FAMILY=$TASK_FAMILY" >> aws-resources.env
-                        else
-                            echo "TASK_FAMILY=hello-world-task" >> aws-resources.env
-                        fi
+                        # Fixed task family - use the known family name
+                        echo "TASK_FAMILY=hello-world-task" >> aws-resources.env
                         
                         # Static values that don't change
                         echo "LOG_GROUP_NAME=/ecs/hello-world" >> aws-resources.env
@@ -173,93 +164,112 @@ pipeline {
             }
         }
         
-
-
         stage('Update ECS Service') {
             steps {
                 script {
                     echo "🚀 Deploying to ECS with AWS Secrets Manager..."
                     sh '''
-                        # Get the database secret ARN from AWS
-                        DB_SECRET_ARN=$(aws secretsmanager list-secrets --query "SecretList[?Name=='hello-world-db-password'].ARN" --output text)
-                        
+                        # Verify we have the secret ARN from resource discovery
                         if [ -z "$DB_SECRET_ARN" ]; then
-                            echo "❌ Database secret not found in AWS Secrets Manager"
-                            echo "🔍 Available secrets:"
-                            aws secretsmanager list-secrets --query "SecretList[].Name" --output text
-                            exit 1
+                            echo "❌ DB_SECRET_ARN not found from resource discovery"
+                            echo "🔍 Trying to discover database secret directly..."
+                            
+                            DB_SECRET_ARN=$(aws secretsmanager list-secrets --query "SecretList[?Name=='hello-world-db-password'].ARN" --output text)
+                            
+                            if [ -z "$DB_SECRET_ARN" ]; then
+                                echo "❌ Database secret not found in AWS Secrets Manager"
+                                echo "🔍 Available secrets:"
+                                aws secretsmanager list-secrets --query "SecretList[].Name" --output text
+                                exit 1
+                            fi
                         fi
                         
-                        echo "✅ Found database secret: $DB_SECRET_ARN"
+                        echo "✅ Using database secret ARN: $DB_SECRET_ARN"
+                        echo "🔐 Jenkins never accesses the actual password!"
+                        
+                        # Debug: Show current values
+                        echo "📋 Debug - Current values:"
+                        echo "   TASK_FAMILY: ${TASK_FAMILY}"
+                        echo "   ECR_REPOSITORY_URL: ${ECR_REPOSITORY_URL}"
+                        echo "   BUILD_NUMBER: ${BUILD_NUMBER}"
                         
                         # Create new task definition with secrets
-                        cat > task-definition.json << EOF
+                        cat > task-definition.json << 'EOF'
+{
+    "family": "hello-world-task",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "256",
+    "memory": "512",
+    "executionRoleArn": "arn:aws:iam::993968405647:role/hello-world-ecs-task-execution-role",
+    "taskRoleArn": "arn:aws:iam::993968405647:role/hello-world-ecs-task-role",
+    "containerDefinitions": [
         {
-            "family": "${TASK_FAMILY}",
-            "networkMode": "awsvpc",
-            "requiresCompatibilities": ["FARGATE"],
-            "cpu": "256",
-            "memory": "512",
-            "executionRoleArn": "${TASK_EXECUTION_ROLE_ARN}",
-            "taskRoleArn": "${TASK_ROLE_ARN}",
-            "containerDefinitions": [
+            "name": "php-app",
+            "image": "PLACEHOLDER_ECR_IMAGE",
+            "portMappings": [
                 {
-                    "name": "php-app",
-                    "image": "${ECR_REPOSITORY_URL}:${BUILD_NUMBER}",
-                    "portMappings": [
-                        {
-                            "containerPort": 8000,
-                            "protocol": "tcp"
-                        }
-                    ],
-                    "environment": [
-                        {
-                            "name": "APP_ENV",
-                            "value": "production"
-                        },
-                        {
-                            "name": "DB_HOST",
-                            "value": "${DB_HOST}"
-                        },
-                        {
-                            "name": "DB_NAME",
-                            "value": "hello_world"
-                        },
-                        {
-                            "name": "DB_USER",
-                            "value": "app_user"
-                        }
-                    ],
-                    "secrets": [
-                        {
-                            "name": "DB_PASSWORD",
-                            "valueFrom": "${DB_SECRET_ARN}:password::"
-                        }
-                    ],
-                    "logConfiguration": {
-                        "logDriver": "awslogs",
-                        "options": {
-                            "awslogs-group": "${LOG_GROUP_NAME}",
-                            "awslogs-region": "${AWS_DEFAULT_REGION}",
-                            "awslogs-stream-prefix": "ecs"
-                        }
-                    },
-                    "healthCheck": {
-                        "command": [
-                            "CMD-SHELL",
-                            "curl -f http://localhost:8000/health || exit 1"
-                        ],
-                        "interval": 30,
-                        "timeout": 5,
-                        "retries": 3,
-                        "startPeriod": 60
-                    },
-                    "essential": true
+                    "containerPort": 8000,
+                    "protocol": "tcp"
                 }
-            ]
+            ],
+            "environment": [
+                {
+                    "name": "APP_ENV",
+                    "value": "production"
+                },
+                {
+                    "name": "DB_HOST",
+                    "value": "PLACEHOLDER_DB_HOST"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "hello_world"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "app_user"
+                }
+            ],
+            "secrets": [
+                {
+                    "name": "DB_PASSWORD",
+                    "valueFrom": "PLACEHOLDER_SECRET_ARN"
+                }
+            ],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/hello-world",
+                    "awslogs-region": "eu-central-1",
+                    "awslogs-stream-prefix": "ecs"
+                }
+            },
+            "healthCheck": {
+                "command": [
+                    "CMD-SHELL",
+                    "curl -f http://localhost:8000/health || exit 1"
+                ],
+                "interval": 30,
+                "timeout": 5,
+                "retries": 3,
+                "startPeriod": 60
+            },
+            "essential": true
         }
-        EOF
+    ]
+}
+EOF
 
+                        # Replace placeholders with actual values
+                        sed -i "s|PLACEHOLDER_ECR_IMAGE|${ECR_REPOSITORY_URL}:${BUILD_NUMBER}|g" task-definition.json
+                        sed -i "s|PLACEHOLDER_DB_HOST|${DB_HOST}|g" task-definition.json
+                        sed -i "s|PLACEHOLDER_SECRET_ARN|${DB_SECRET_ARN}:password::|g" task-definition.json
+                        
+                        # Validate JSON
+                        echo "🔍 Validating JSON..."
+                        python3 -c "import json; json.load(open('task-definition.json'))" && echo "✅ Valid JSON" || (echo "❌ Invalid JSON" && cat task-definition.json && exit 1)
+                        
                         # Register and update service
                         echo "📝 Registering new task definition with secrets..."
                         NEW_TASK_DEF=$(aws ecs register-task-definition --cli-input-json file://task-definition.json --query 'taskDefinition.taskDefinitionArn' --output text)
@@ -269,10 +279,11 @@ pipeline {
                         aws ecs update-service \
                             --cluster ${ECS_CLUSTER_NAME} \
                             --service ${ECS_SERVICE_NAME} \
-                            --task-definition ${TASK_FAMILY} \
+                            --task-definition hello-world-task \
                             --desired-count 1
                         
                         echo "✅ ECS service update initiated with AWS Secrets Manager"
+                        echo "🔐 Database password is securely retrieved by ECS at runtime"
                     '''
                 }
             }
