@@ -67,6 +67,10 @@ pipeline {
                         discover_resource "RDS Database" \
                             "aws rds describe-db-instances --db-instance-identifier hello-world-database --region eu-central-1 --query 'DBInstances[0].Endpoint.Address' --output text" \
                             "DB_HOST"
+
+                        discover_resource "Database Secret" \
+                            "aws secretsmanager list-secrets --query \"SecretList[?Name=='hello-world-db-password'].ARN\" --output text" \
+                            "DB_SECRET_ARN"
                         
                         # Get current task definition family
                         if aws ecs describe-services --cluster hello-world-cluster --services hello-world-service --region eu-central-1 >/dev/null 2>&1; then
