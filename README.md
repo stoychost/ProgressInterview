@@ -1,17 +1,9 @@
-
-#### Container Orchestration
-- **ECS Cluster**: Fargate-based serverless container platform
-- **ECS Service**: Manages desired count and deployment of application containers
-- **Task Definition**: Container specifications with secrets integration
-  - 256 CPU units (0.25 vCPU), 512 MB memory for free tier optimization
-  - Network mode: awsvpc (each task gets own ENI in private subnet)
-  - Integration with AWS Secrets Manager for database credentials# Hello World Microservice - Infrastructure and Deployment
-
-This project demonstrates a complete containerized microservice deployment to using Docker, Terraform, and Jenkins CI/CD pipelines on AWS ECS.
-
 ## Architecture Overview
 
 The application consists of a PHP web application with MySQL database, deployed as a containerized microservice on AWS ECS with secure secrets management.
+
+
+## AWS ARCHITECURE DIAGRAM
 
 ![Architecture diagram](./hello-diagram.png)
 
