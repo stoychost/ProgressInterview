@@ -146,10 +146,11 @@ The Terraform configuration creates a complete AWS infrastructure:
 
 ```
 terraform/
-├── main.tf          # Core infrastructure resources
-├── variables.tf     # Input variables and validation
-├── outputs.tf       # Resource outputs for pipeline integration
-├── secrets.tf       # AWS Secrets Manager configuration
+├── main.tf           # Core infrastructure resources
+├── variables.tf      # Input variables and validation
+├── outputs.tf        # Resource outputs for pipeline integration
+├── secrets.tf        # AWS Secrets Manager configuration
+├── sterraform.tfvars # Normally I wouldn't commit to git, but I'm adding it, so reviewers can test the pipelines. Contains no sensitive data anyway
 └── terraform.tfvars.example  # Template for variables
 ```
 
@@ -319,8 +320,8 @@ Internet → IGW → ALB (Public Subnets) → ECS Tasks (Private Subnets) → RD
 
 ```bash
 # 1. Configure infrastructure variables
-cp terraform/terraform.tfvars.example terraform/terraform.tfvars
-# Edit terraform.tfvars with your settings
+vi terraform/terraform.tfvars
+# Edit terraform.tfvars with your settings if needed(changes or adding new vars)
 
 # 2. Run infrastructure pipeline
 # In Jenkins: hello-world-infrastructure
