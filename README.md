@@ -2,8 +2,9 @@
 
 The application consists of a PHP web application with MySQL database, deployed as a containerized microservice on AWS ECS with secure secrets management.
 
+Application is publically available at http://hello-world.stoycho.online
 
-## AWS ARCHITECURE DIAGRAM
+## AWS Architecure Diagram
 
 ![Architecture diagram](./hello-diagram.png)
 
@@ -14,7 +15,7 @@ The application consists of a PHP web application with MySQL database, deployed 
 - **Infrastructure**: AWS ECS Fargate, RDS, ALB, VPC
 - **Container Registry**: AWS ECR
 - **Secrets Management**: AWS Secrets Manager
-- **CI/CD**: Jenkins pipelines for infrastructure and application deployment
+- **CI/CD**: Two separate Jenkins pipelines for infrastructure and application deployment
 - **DNS**: Route53 for domain management
 
 ## Local Development Setup
@@ -31,8 +32,11 @@ The application consists of a PHP web application with MySQL database, deployed 
 git clone https://github.com/stoychost/ProgressInterview
 cd ProgressInterview
 
+# Build the containers
+docker compose build .
+
 # Start the complete local environment
-docker-compose up -d
+docker compose up -d
 
 # Access the application
 open http://localhost:8080
@@ -40,7 +44,7 @@ open http://localhost:8080
 
 ### Local Services
 
-The docker-compose setup provides:
+The docker compose setup provides:
 
 - **PHP Application**: Port 8080 (via Nginx reverse proxy)
 - **MySQL Database**: Port 3306 (internal)
@@ -51,10 +55,9 @@ The docker-compose setup provides:
 
 Environment variables are managed through `.env` file:
 
-```bash
-# Copy template and customize
-cp .env.template .env
-```
+
+# Normally the .env file would be included in .gitignore file for security reasons but here it's included so the app can run locally on other machines.
+
 
 Key configuration:
 - `APP_PORT`: External port for the application (default: 8080)
@@ -125,7 +128,7 @@ The Terraform configuration creates a complete AWS infrastructure:
 - **Route53**: Public hosted zone and DNS records
   - Hosted zone for domain management (stoycho.online)
   - A record pointing application domain to ALB
-  - CNAME record for www subdomain
+  - CNAME record for www subdomain (hello-world.)
   - Name servers for domain delegation
 - **CloudWatch**: Comprehensive logging and monitoring
   - Log Groups: `/ecs/hello-world` for application logs
@@ -152,7 +155,7 @@ terraform/
 
 ## Jenkins CI/CD Pipelines
 
-The project uses two distinct Jenkins pipelines for infrastructure and application deployment.
+The project uses two distinct Jenkins pipelines for infrastructure and application deployment. They get the source code from the GitHub repository and use local aws cli profile for authentication.
 
 ### Infrastructure Pipeline (Jenkinsfile.infrastructure)
 
@@ -423,3 +426,9 @@ aws ecs describe-services --cluster hello-world-cluster --services hello-world-s
 1. Ensure Docker builds succeed locally
 2. Test health endpoints before deployment
 3. Monitor CloudWatch logs after deployment
+
+## Future enhancements
+
+1. Apply SSL certificate
+2. Implement rules for autoscaling based on different conditions.
+3. Enhance monitoring with third party tools.
