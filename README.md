@@ -12,7 +12,7 @@ Application is publically available at http://hello-world.stoycho.online
 
 - **Application**: PHP 8.2 web application with database connectivity
 - **Database**: MySQL 8.0 with automated schema initialization
-- **Infrastructure**: AWS ECS Fargate, RDS, ALB, VPC
+- **Infrastructure**: AWS ECS Fargate, RDS, ALB, VPC, SGs, Public/Private subnets, Route tables, NAT, Internet Gateway, IAM, Container Insights, CloudWatch.
 - **Container Registry**: AWS ECR
 - **Secrets Management**: AWS Secrets Manager
 - **CI/CD**: Two separate Jenkins pipelines for infrastructure and application deployment
