@@ -1,6 +1,6 @@
 ## Architecture Overview
 
-The application consists of a PHP web application with MySQL database, deployed as a containerized microservice on AWS ECS with secure secrets management.
+The application consists of a PHP web application with MySQL database, deployed as a containerized microservice on AWS ECS with secure secrets management. It utilizes the popular LEMP stack(Linux, Nginx, MySQL, PHP)
 
 Application is publically available at http://hello-world.stoycho.online
 
