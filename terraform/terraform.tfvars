@@ -39,7 +39,7 @@ ecs_desired_count = 1      # Only 1 task to maximize free tier usage
 # DOCKER IMAGE CONFIGURATION
 # ====================
 
-!!!Normally it shouldn't be commited. I'm adding it to git so interviewers can test. Doesn't contain sensitive information anyway.
+# !!!Normally it should not be commited. I'm adding it to git so interviewers can test. Does not contain sensitive information anyway.
 
 # ====================
 # DOMAIN CONFIGURATION - stoycho.online
